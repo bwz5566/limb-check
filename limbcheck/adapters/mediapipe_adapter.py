@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..config import model_path
-from ..keypoints import MP33, Body, Hand
+from ..keypoints import MP33, Body, Hand, mirror_body
 
 
 class MediaPipeKeypoints:
@@ -60,6 +60,7 @@ class MediaPipeKeypoints:
             vis = np.array([p.visibility if p.visibility is not None else 1.0 for p in lms], dtype=float)
             joints = {k: arr[i] for k, i in MP33.items()}
             v = {k: float(vis[i]) for k, i in MP33.items()}
-            out.append(Body(joints=joints, vis=v, score=float(np.mean(list(v.values()))), source=self.name))
+            b = Body(joints=joints, vis=v, score=float(np.mean(list(v.values()))), source=self.name)
+            out.append(mirror_body(b) if self.mirrored else b)
         out.sort(key=lambda b: b.score, reverse=True)
         return out

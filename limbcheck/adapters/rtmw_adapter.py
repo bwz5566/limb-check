@@ -8,19 +8,21 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..keypoints import COCO17, WB133_LEFT_HAND, WB133_RIGHT_HAND, Body, Hand, body_from_array
+from ..keypoints import COCO17, WB133_LEFT_HAND, WB133_RIGHT_HAND, Body, Hand, body_from_array, mirror_body
 
 HAND_MIN_SCORE = 0.3   # 手部 21 点平均置信度低于此值视为没看到这只手
+OTHER_SIDE = {"left": "right", "right": "left"}
 
 
 class RTMWKeypoints:
     def __init__(self, device: str = "cpu", mode: str = "balanced", hand_model: bool = False,
                  det: str | None = None, pose: str | None = None, hand_det: str | None = None,
-                 hand_pose: str | None = None, backend: str = "onnxruntime"):
+                 hand_pose: str | None = None, backend: str = "onnxruntime", mirrored: bool = False):
         from rtmlib import Hand as RtmHand
         from rtmlib import Wholebody
 
         self.name = "rtmw+hand" if hand_model else "rtmw"
+        self.mirrored = mirrored   # 输入为自拍镜像画面时，把模型给出的左右换回受检者本人的左右
         kw = {"backend": backend, "device": device, "mode": mode}
         if det:
             kw["det"] = det
@@ -44,6 +46,8 @@ class RTMWKeypoints:
     def bodies(self, img: np.ndarray) -> list[Body]:
         kpts, scores = self._wholebody(img)
         out = [body_from_array(k, s, COCO17, self.name) for k, s in zip(kpts, scores)]
+        if self.mirrored:
+            out = [mirror_body(b) for b in out]
         out.sort(key=lambda b: b.score, reverse=True)
         return out
 
@@ -66,5 +70,6 @@ class RTMWKeypoints:
             s = scores[i, sl]
             if float(np.mean(s)) >= HAND_MIN_SCORE:
                 out.append(Hand(pts=kpts[i, sl, :2].astype(float), score=float(np.clip(np.mean(s), 0, 1)),
-                                side=side, side_score=1.0, point_scores=s, source=self.name))
+                                side=OTHER_SIDE[side] if self.mirrored else side, side_score=1.0,
+                                point_scores=s, source=self.name))
         return out

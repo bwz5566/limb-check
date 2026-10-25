@@ -3,6 +3,7 @@ import pytest
 
 from conftest import hand_points, make_body, make_hand
 from limbcheck.geometry import analyze_fingers, facing, fingers_result, limbs_result, orient_sign, rgb_to_lab
+from limbcheck.keypoints import mirror_body
 
 
 def test_normal_hand_has_no_flags(thresholds):
@@ -73,6 +74,14 @@ def test_limbs_low_visibility_inside_frame_is_suspect(thresholds):
     b.vis["right_wrist"] = 0.1
     r = limbs_result(b, thresholds["pose"], "L1:test", lower=True, image_size=(640, 640))
     assert r.positive is True and "right_arm" in r.parts
+
+
+def test_mirror_body_swaps_anatomical_sides():
+    b = make_body()
+    b.vis["right_knee"] = 0.3
+    m = mirror_body(b)
+    assert np.allclose(m.joints["right_wrist"], b.joints["left_wrist"]) and m.vis["left_knee"] == 0.3
+    assert np.allclose(m.joints["nose"], b.joints["nose"])
 
 
 def test_lab_reference_values():

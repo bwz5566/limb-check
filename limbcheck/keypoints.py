@@ -70,6 +70,21 @@ class Body:
         return name in self.joints and self.vis.get(name, 0.0) >= min_vis
 
 
+def mirror_name(name: str) -> str:
+    """left_xxx ↔ right_xxx。"""
+    if name.startswith("left_"):
+        return "right_" + name[5:]
+    if name.startswith("right_"):
+        return "left_" + name[6:]
+    return name
+
+
+def mirror_body(body: Body) -> Body:
+    """镜像画面上，模型按外观给出的关节左右与受检者本人相反，交换回本人的左右（坐标不变）。"""
+    return Body(joints={mirror_name(k): v for k, v in body.joints.items()}, vis={mirror_name(k): v for k, v in body.vis.items()},
+                score=body.score, source=body.source)
+
+
 def body_from_array(arr: np.ndarray, scores: np.ndarray, mapping: dict[str, int], source: str) -> Body:
     joints = {k: np.asarray(arr[i][:2], dtype=float) for k, i in mapping.items() if i < len(arr)}
     vis = {k: float(scores[i]) for k, i in mapping.items() if i < len(scores)}

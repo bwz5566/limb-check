@@ -1,4 +1,4 @@
-# 判定阈值。初值来自网页 demo 的经验值，必须用 M0 实测数据校准（见 docs/VALIDATION.md 第 6 节）。
+# 判定阈值。初值来自网页 demo 的经验值，必须用 M0 实测数据校准（见 docs/VALIDATION.md 第 7 节）。
 # 网页 demo 读取的是由本文件生成的 apps/web-demo/config.generated.json：
 # 改完本文件后运行 `limbcheck export-web-config`，否则 tests/test_config.py 会失败。
 version: 1

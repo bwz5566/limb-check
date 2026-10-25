@@ -1,5 +1,5 @@
 # M0 通过标准（建议值，需与业务方确认）。`limbcheck eval / score` 读取本文件逐条判定。
-# metric：指标路径，见 docs/METRICS.md 第 3 节；op：>= / <= / record（只记录不判定）；
+# metric：指标路径，见 docs/METRICS.md 第 4 节；op：>= / <= / record（只记录不判定）；
 # use：比较点估计 value（默认）或置信区间下限 ci_low / 上限 ci_high（更严格）；
 # min_n：样本数下限，不足时判"样本不足"而不是通过或未达标。
 stage: M0

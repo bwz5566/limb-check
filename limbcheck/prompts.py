@@ -2,7 +2,7 @@
 
 提示词文本放在 configs/prompts/<版本>.json，代码只负责拼装和校验：
 - 改提示词：复制 v1.json 为 v2.json 修改，用环境变量 LIMBCHECK_PROMPT_VERSION=v2 或
-  configs/checks.json 的 default_prompt_version 切换，再跑回归评测对比（docs/VALIDATION.md 第 7 节）。
+  configs/checks.json 的 default_prompt_version 切换，再跑回归评测对比（docs/VALIDATION.md 第 9 节）。
 - 新增检测项：在 checks.json 和提示词文件的 checks 里各加一项即可，见 docs/EXTENDING.md。
 """
 from __future__ import annotations

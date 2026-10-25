@@ -3,6 +3,7 @@
 本文回答两个问题：**这个项目要落地，需要看哪些指标；每个阶段要拿出什么结果才能往下走。**
 指标的计算代码在 `limbcheck/metrics.py`，通过标准在 `configs/acceptance.yaml`（可直接改），
 `limbcheck eval` / `limbcheck score` 会逐条判定并写进报告。
+各指标的计算细节和算例（Wilson 区间、Cohen's κ、按会话汇总）见 [GUIDE.md](GUIDE.md) 第 7 节。
 
 > 所有目标值都是**建议值**，需要和业务方、法务确认后写进 `configs/acceptance.yaml`。
 > 交接文档第 11 章第 5 条“验收标准”仍是 P0 待定项。
