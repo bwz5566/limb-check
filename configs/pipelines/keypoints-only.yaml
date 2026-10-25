@@ -1,0 +1,5 @@
+# 只用关键点长度比（即网页 demo 的 L1 逻辑），用于对比"加轮廓复核 / 加大模型"各带来多少提升。
+name: keypoints-only
+keypoints: {type: mediapipe}
+l1: [fingers.keypoints, nails.delta_e, limbs.pose]
+vlm: none

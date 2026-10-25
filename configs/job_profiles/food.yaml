@@ -1,0 +1,17 @@
+id: food
+name: 食品 / 无尘车间
+description: 需双手抓握，入职前需卸除美甲
+requirements:
+  - 双手能完成抓握
+  - 上肢活动正常
+  - 入职前需卸除美甲
+steps: [env, stand, back, arms, palms, backs, flex, challenge]
+checks:
+  limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
+  fingers:  {enabled: true, mode: judge, params: {pinch: false}}
+  nails:    {enabled: true, mode: judge}
+  tattoo:   {enabled: true, mode: record_only}
+  scar:     {enabled: true, mode: record_only}
+  hair:     {enabled: true, mode: record_only}
+  liveness: {enabled: true, mode: judge}
+basis: []

@@ -1,0 +1,8 @@
+# RTX 6000 上的服务端方案：RTMW 全身 133 点 + RTMPose-hand 手部近景 + SAM 2.1 轮廓复核。
+# 依赖：pip install -e ".[rtmw-gpu,sam2]"；模型下载见 deploy/rtx/README.md。
+name: rtmw-sam2
+keypoints: {type: rtmw+hand, device: cuda, mode: balanced}
+contour: {type: sam2, device: cuda}           # 本地权重：{type: sam2, device: cuda, checkpoint: /models/sam2.1_hiera_tiny.pt}
+segmenter: {type: mpseg}
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+vlm: env

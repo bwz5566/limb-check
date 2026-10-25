@@ -1,0 +1,7 @@
+# RTMW 在 CPU 上的对照（速度慢，只用于小规模精度对比）。依赖：pip install -e ".[rtmw]"
+name: rtmw-skin
+keypoints: {type: rtmw+hand, device: cpu, mode: balanced}
+contour: {type: skin}
+segmenter: {type: mpseg}
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+vlm: env

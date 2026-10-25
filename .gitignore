@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# 测试时下载的公开图片
+tests/.assets/
+
+# 评测数据、结果、可视化、导出的报告：含受检者影像，不要提交
+data/
+runs/
+viz/
+reports/
+*.demo.json
+limbcheck-S*.json
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

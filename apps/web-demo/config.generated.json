@@ -1,0 +1,435 @@
+{
+  "_comment": "由 `limbcheck export-web-config` 从 configs/ 生成，请勿手改",
+  "prompt_version": "v1",
+  "checks": {
+    "limbs": {
+      "name": "四肢",
+      "views": [
+        "stand",
+        "arms",
+        "arms_up"
+      ],
+      "basis_required": false,
+      "appearance": false
+    },
+    "fingers": {
+      "name": "手指",
+      "views": [
+        "palms",
+        "backs",
+        "hand"
+      ],
+      "basis_required": false,
+      "appearance": false
+    },
+    "nails": {
+      "name": "美甲",
+      "views": [
+        "backs",
+        "hand"
+      ],
+      "basis_required": false,
+      "appearance": true
+    },
+    "tattoo": {
+      "name": "纹身",
+      "views": [
+        "stand",
+        "back",
+        "arms",
+        "arms_up",
+        "backs"
+      ],
+      "basis_required": true,
+      "appearance": true
+    },
+    "scar": {
+      "name": "疤痕",
+      "views": [
+        "stand",
+        "back",
+        "arms",
+        "arms_up",
+        "backs"
+      ],
+      "basis_required": true,
+      "appearance": true
+    },
+    "hair": {
+      "name": "发色",
+      "views": [
+        "stand",
+        "back"
+      ],
+      "basis_required": true,
+      "appearance": true
+    },
+    "liveness": {
+      "name": "活体/防作弊",
+      "views": [],
+      "basis_required": false,
+      "appearance": false
+    }
+  },
+  "views": {
+    "stand": {
+      "name": "正面站立",
+      "kind": "body"
+    },
+    "back": {
+      "name": "背面站立",
+      "kind": "body"
+    },
+    "arms": {
+      "name": "双臂侧平举",
+      "kind": "body"
+    },
+    "arms_up": {
+      "name": "双臂上举",
+      "kind": "body"
+    },
+    "palms": {
+      "name": "双手掌心",
+      "kind": "hand",
+      "expected_hands": 2
+    },
+    "backs": {
+      "name": "双手手背",
+      "kind": "hand",
+      "expected_hands": 2
+    },
+    "hand": {
+      "name": "单手近景",
+      "kind": "hand",
+      "expected_hands": 1
+    }
+  },
+  "thresholds": {
+    "version": 1,
+    "capture": {
+      "hold_ms": 1000,
+      "step_timeout_ms": 25000,
+      "challenge_round_ms": 5000,
+      "challenge_rounds": 2
+    },
+    "quality": {
+      "brightness": [
+        60,
+        215
+      ],
+      "blur_laplacian_min": 80,
+      "max_persons": 1,
+      "min_hand_size": 0.07
+    },
+    "pose": {
+      "min_visibility": 0.55,
+      "limb_symmetry": [
+        0.75,
+        1.33
+      ]
+    },
+    "fingers": {
+      "ref": {
+        "thumb": 0.95,
+        "index": 0.88,
+        "middle": 1.0,
+        "ring": 0.93,
+        "little": 0.72
+      },
+      "short_factor": 0.6,
+      "middle_to_palm_min": 0.45,
+      "extended_angle": 145,
+      "thumb_extended_angle": 140,
+      "pinch_ratio": 0.32
+    },
+    "contour": {
+      "tip_on_mask_min": 0.5,
+      "skin_delta_e": 20,
+      "mask_dilate_px": 3
+    },
+    "nails": {
+      "delta_e": 22
+    },
+    "hair": {
+      "dyed_chroma_min": 18,
+      "min_pixels": 400
+    },
+    "multi_frame": {
+      "window": 9,
+      "vote": 0.6
+    },
+    "arbitration": {
+      "strategy": "default",
+      "high_conf": 0.8,
+      "low_conf": 0.5,
+      "max_redo": 1,
+      "per_check": {
+        "scar": {
+          "high_conf": 0.9
+        }
+      }
+    }
+  },
+  "jobs": [
+    {
+      "id": "precision",
+      "name": "精密装配",
+      "description": "需双手十指完成抓握与捏取等精细操作",
+      "requirements": [
+        "双手十指能完成抓握与捏取",
+        "上肢活动正常",
+        "入职前需卸除美甲"
+      ],
+      "steps": [
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "palms",
+        "backs",
+        "flex",
+        "pinch",
+        "challenge"
+      ],
+      "checks": {
+        "limbs": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "upper": true,
+            "lower": false
+          }
+        },
+        "fingers": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "pinch": true
+          }
+        },
+        "nails": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        },
+        "tattoo": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "scar": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "hair": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "liveness": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        }
+      },
+      "basis": []
+    },
+    {
+      "id": "line",
+      "name": "普通产线",
+      "description": "需双手完成抓握，上肢活动正常",
+      "requirements": [
+        "双手能完成抓握",
+        "上肢活动正常"
+      ],
+      "steps": [
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "palms",
+        "backs",
+        "flex",
+        "challenge"
+      ],
+      "checks": {
+        "limbs": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "upper": true,
+            "lower": false
+          }
+        },
+        "fingers": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "pinch": false
+          }
+        },
+        "nails": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "tattoo": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "scar": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "hair": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "liveness": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        }
+      },
+      "basis": []
+    },
+    {
+      "id": "warehouse",
+      "name": "仓储搬运",
+      "description": "需四肢活动正常，可下蹲搬抬",
+      "requirements": [
+        "四肢活动正常",
+        "能下蹲后起立",
+        "双手能完成抓握"
+      ],
+      "steps": [
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "legs",
+        "squat",
+        "palms",
+        "backs",
+        "flex",
+        "challenge"
+      ],
+      "checks": {
+        "limbs": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "upper": true,
+            "lower": true
+          }
+        },
+        "fingers": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "pinch": false
+          }
+        },
+        "nails": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "tattoo": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "scar": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "hair": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "liveness": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        }
+      },
+      "basis": []
+    },
+    {
+      "id": "food",
+      "name": "食品 / 无尘车间",
+      "description": "需双手抓握，入职前需卸除美甲",
+      "requirements": [
+        "双手能完成抓握",
+        "上肢活动正常",
+        "入职前需卸除美甲"
+      ],
+      "steps": [
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "palms",
+        "backs",
+        "flex",
+        "challenge"
+      ],
+      "checks": {
+        "limbs": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "upper": true,
+            "lower": false
+          }
+        },
+        "fingers": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {
+            "pinch": false
+          }
+        },
+        "nails": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        },
+        "tattoo": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "scar": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "hair": {
+          "enabled": true,
+          "mode": "record_only",
+          "params": {}
+        },
+        "liveness": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
+        }
+      },
+      "basis": []
+    }
+  ],
+  "appearance_checks": [
+    "nails",
+    "tattoo",
+    "scar",
+    "hair"
+  ]
+}

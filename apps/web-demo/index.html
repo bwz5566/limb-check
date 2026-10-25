@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>肢体检测验证 Demo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>远程肢体完整性检测 · 效果验证 Demo</h1>
+  <span id="modelStatus" class="tag">模型加载中…</span>
+  <span id="vlmStatus" class="tag">大模型复核：检查中…</span>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="video-wrap">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="banner" class="banner">请先在右侧选择岗位、勾选同意并点击“开始检测”</div>
+      <div id="hint" class="hint"></div>
+      <div class="hold"><div id="holdBar"></div></div>
+      <div id="metrics" class="metrics"></div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div id="setup">
+      <label class="field">目标岗位
+        <select id="job"></select>
+      </label>
+      <p id="jobDesc" class="muted"></p>
+      <label class="field inline"><input type="checkbox" id="voice" checked> 语音引导</label>
+      <label class="field inline"><input type="checkbox" id="useVlm" checked> 启用大模型复核（需在服务端配置）</label>
+      <div class="consent">
+        <label class="inline"><input type="checkbox" id="consent">
+          <span>我已了解并同意：本 demo 仅用于效果验证。视频只在本机浏览器内处理，只保留检测所需的几张证据截图；若启用大模型复核，这些截图会发送到所配置的模型服务。检测项为手指、四肢、美甲，以及纹身、疤痕、发色（后三项在没有书面岗位依据前只记录、不作判定）。系统不输出最终“不通过”，有疑问的项目一律交人工确认。</span></label>
+      </div>
+      <button id="startBtn" disabled>开始检测</button>
+      <p class="muted small">请在光线充足处进行，穿短袖，先站到距镜头约 2–2.5 米处。手部步骤会提示你走近镜头。</p>
+    </div>
+    <ol id="stepList" class="steps"></ol>
+    <button id="skipBtn" class="ghost" hidden>跳过当前步骤</button>
+
+    <div class="validation">
+      <label class="field inline"><input type="checkbox" id="vOn"> <b>验证模式</b>：由测试人员记录受检者真实情况，导出后用于计算检出率、误报率</label>
+      <div id="vForm" hidden>
+        <label class="field">受检者编号<input id="vSubject" placeholder="如 P007，不要填姓名"></label>
+        <label class="field">场景
+          <select id="v_scenario">
+            <option value="normal">普通（健全）</option>
+            <option value="missing_finger">真实缺指 / 短指</option>
+            <option value="prosthesis">假肢 / 假指 / 指套</option>
+            <option value="nail_polish">美甲</option>
+            <option value="tattoo">纹身（含贴纸）</option>
+            <option value="scar">疤痕</option>
+            <option value="dyed_hair">染发</option>
+            <option value="attack">防作弊测试</option>
+            <option value="hard_light">弱光 / 逆光</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
+        <fieldset id="vFingers">
+          <legend>缺失或明显短缩的手指</legend>
+          <div class="fgrid">
+            <span></span><span>拇</span><span>食</span><span>中</span><span>无名</span><span>小</span>
+            <span>右手</span><input type="checkbox" data-side="right" data-f="thumb"><input type="checkbox" data-side="right" data-f="index"><input type="checkbox" data-side="right" data-f="middle"><input type="checkbox" data-side="right" data-f="ring"><input type="checkbox" data-side="right" data-f="little">
+            <span>左手</span><input type="checkbox" data-side="left" data-f="thumb"><input type="checkbox" data-side="left" data-f="index"><input type="checkbox" data-side="left" data-f="middle"><input type="checkbox" data-side="left" data-f="ring"><input type="checkbox" data-side="left" data-f="little">
+          </div>
+          <label class="inline small"><input type="checkbox" id="vNailR"> 右手有美甲</label>
+          <label class="inline small"><input type="checkbox" id="vNailL"> 左手有美甲</label>
+          <label class="inline small"><input type="checkbox" id="vChecked" checked> 以上手指、指甲已人工核对（不勾选则这两项不计入指标）</label>
+        </fieldset>
+        <div class="grid2">
+          <label class="field">四肢<select id="v_limbs"><option value="">未标注</option><option value="no">正常</option><option value="yes">有缺失或明显异常</option></select></label>
+          <label class="field">纹身<select id="v_tattoo"><option value="">未标注</option><option value="no">无</option><option value="yes">有</option></select></label>
+          <label class="field">疤痕<select id="v_scar"><option value="">未标注</option><option value="no">无</option><option value="yes">有</option></select></label>
+          <label class="field">发色<select id="v_hair"><option value="">未标注</option><option value="natural">自然</option><option value="dyed">染发</option><option value="highlights">挑染</option></select></label>
+          <label class="field">本次是否攻击测试<select id="v_attack"><option value="none">真人现场</option><option value="replay">回放录像</option><option value="photo">照片</option><option value="virtual_camera">虚拟摄像头</option><option value="other">其他攻击</option><option value="">未标注</option></select></label>
+          <label class="field">光线<select id="v_lighting"><option value="">未标注</option><option value="normal">正常</option><option value="dim">偏暗</option><option value="bright">偏亮</option><option value="backlit">逆光</option></select></label>
+          <label class="field">肤色分组<select id="v_skin_tone"><option value="">不填</option><option value="I-II">较浅（I–II）</option><option value="III-IV">中等（III–IV）</option><option value="V-VI">较深（V–VI）</option></select></label>
+          <label class="field">设备<input id="v_device" placeholder="如 笔记本自带摄像头"></label>
+        </div>
+        <div id="vExtra" class="grid2"></div>
+        <label class="field">备注<input id="v_note" placeholder="可选"></label>
+        <p class="muted small">肤色分组只用于检查不同人群的误报率是否有差异，可不填。标注可在检测结束后修改，导出报告时以当时的填写为准。</p>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<section id="report" hidden></section>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

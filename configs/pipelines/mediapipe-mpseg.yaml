@@ -1,0 +1,7 @@
+# 与 mediapipe-skin 相同，但轮廓复核改用 MediaPipe 人像分割的"身体皮肤"类（背景接近肤色时对比用）。
+name: mediapipe-mpseg
+keypoints: {type: mediapipe}
+contour: {type: mpseg}
+segmenter: {type: mpseg}
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+vlm: env

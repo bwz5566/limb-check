@@ -1,0 +1,5 @@
+# 只用 L2 大模型，评估不同模型（8B / 32B / 72B）单独的能力。
+# 用法：VLM_BASE_URL=http://昇腾服务器:8001/v1 VLM_MODEL=Qwen/Qwen3-VL-32B-Instruct limbcheck eval --pipeline configs/pipelines/vlm-only.yaml ...
+name: vlm-only
+l1: []
+vlm: env

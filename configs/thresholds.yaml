@@ -1,0 +1,51 @@
+# 判定阈值。初值来自网页 demo 的经验值，必须用 M0 实测数据校准（见 docs/VALIDATION.md 第 6 节）。
+# 网页 demo 读取的是由本文件生成的 apps/web-demo/config.generated.json：
+# 改完本文件后运行 `limbcheck export-web-config`，否则 tests/test_config.py 会失败。
+version: 1
+
+capture:
+  hold_ms: 1000              # 动作保持多久算到位
+  step_timeout_ms: 25000     # 单步超时
+  challenge_round_ms: 5000   # 随机手势挑战每轮时限
+  challenge_rounds: 2
+
+quality:
+  brightness: [60, 215]      # 画面平均亮度（0–255）允许范围
+  blur_laplacian_min: 80     # 拉普拉斯方差低于此值视为模糊（建议初值，未经实测）
+  max_persons: 1
+  min_hand_size: 0.07        # 掌长 / 画面高度，低于此值提示走近
+
+pose:
+  min_visibility: 0.55       # 关键点可见度阈值
+  limb_symmetry: [0.75, 1.33]  # 左右肢段长度比正常范围
+
+fingers:
+  # 各手指链长 / 中指链长 的参考比例（MCP→指尖，拇指 CMC→指尖）
+  ref: {thumb: 0.95, index: 0.88, middle: 1.0, ring: 0.93, little: 0.72}
+  short_factor: 0.6          # 低于 参考 × 0.6 记"疑似缺失或短缩"
+  middle_to_palm_min: 0.45   # 中指链长 / 掌长（腕→中指 MCP）下限
+  extended_angle: 145        # 非拇指 MCP-PIP-TIP 夹角大于此值算伸直
+  thumb_extended_angle: 140
+  pinch_ratio: 0.32          # 拇指尖与目标指尖距离 / 掌长 < 此值算对捏
+
+contour:
+  tip_on_mask_min: 0.5       # 指尖段采样点落在手部掩码内的比例下限，低于此值判"关键点脑补"
+  skin_delta_e: 20           # skin 后端：与手背肤色的 Lab 色差上限
+  mask_dilate_px: 3
+
+nails:
+  delta_e: 22                # 指甲与手背肤色 Lab 色差，超过记"疑似美甲"
+
+hair:
+  dyed_chroma_min: 18        # 头发像素平均彩度高于此值记"疑似染色"（粗略启发式，只作基线）
+  min_pixels: 400            # 头发像素少于此值视为无法判断
+
+multi_frame: {window: 9, vote: 0.6}   # 建议：9 帧中 ≥60% 一致才采纳（实时链路用，离线评测为单帧）
+
+arbitration:
+  strategy: default          # 仲裁策略（limbcheck/arbiter.py；自定义策略见 docs/EXTENDING.md）
+  high_conf: 0.8             # 所有来源都认为正常且置信度都 ≥ 此值才自动通过
+  low_conf: 0.5              # 两路不一致且一方低于此值时优先重做
+  max_redo: 1
+  per_check:                 # 按检测项覆盖上面的值
+    scar: {high_conf: 0.9}   # 疤痕大模型误报多，要求更高置信度才自动通过

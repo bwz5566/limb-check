@@ -1,0 +1,23 @@
+{
+  "_comment": "检测项与拍摄视角的定义（单一来源，Python 包和网页 demo 都读这里）。新增检测项或视角见 docs/EXTENDING.md。",
+  "version": 1,
+  "default_prompt_version": "v1",
+  "checks": {
+    "limbs":    {"name": "四肢",       "views": ["stand", "arms", "arms_up"], "basis_required": false, "appearance": false},
+    "fingers":  {"name": "手指",       "views": ["palms", "backs", "hand"],   "basis_required": false, "appearance": false},
+    "nails":    {"name": "美甲",       "views": ["backs", "hand"],            "basis_required": false, "appearance": true},
+    "tattoo":   {"name": "纹身",       "views": ["stand", "back", "arms", "arms_up", "backs"], "basis_required": true, "appearance": true},
+    "scar":     {"name": "疤痕",       "views": ["stand", "back", "arms", "arms_up", "backs"], "basis_required": true, "appearance": true},
+    "hair":     {"name": "发色",       "views": ["stand", "back"],            "basis_required": true, "appearance": true},
+    "liveness": {"name": "活体/防作弊", "views": [],                           "basis_required": false, "appearance": false}
+  },
+  "views": {
+    "stand":   {"name": "正面站立",   "kind": "body"},
+    "back":    {"name": "背面站立",   "kind": "body"},
+    "arms":    {"name": "双臂侧平举", "kind": "body"},
+    "arms_up": {"name": "双臂上举",   "kind": "body"},
+    "palms":   {"name": "双手掌心",   "kind": "hand", "expected_hands": 2},
+    "backs":   {"name": "双手手背",   "kind": "hand", "expected_hands": 2},
+    "hand":    {"name": "单手近景",   "kind": "hand", "expected_hands": 1}
+  }
+}

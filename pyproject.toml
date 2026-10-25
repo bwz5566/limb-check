@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limbcheck"
+version = "0.1.0"
+description = "远程肢体完整性检测：M0 验证框架（数据导入、模型适配、仲裁、指标与报告）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+  "pyyaml>=6",
+  "tqdm>=4.60",
+]
+
+[project.optional-dependencies]
+mediapipe = ["mediapipe>=0.10.14"]
+rtmw = ["rtmlib>=0.0.13", "onnxruntime>=1.17"]
+rtmw-gpu = ["rtmlib>=0.0.13", "onnxruntime-gpu>=1.17"]
+sam2 = ["torch>=2.3", "sam2>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+limbcheck = "limbcheck.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["limbcheck*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

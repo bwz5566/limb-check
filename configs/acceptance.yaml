@@ -1,0 +1,92 @@
+# M0 通过标准（建议值，需与业务方确认）。`limbcheck eval / score` 读取本文件逐条判定。
+# metric：指标路径，见 docs/METRICS.md 第 3 节；op：>= / <= / record（只记录不判定）；
+# use：比较点估计 value（默认）或置信区间下限 ci_low / 上限 ci_high（更严格）；
+# min_n：样本数下限，不足时判"样本不足"而不是通过或未达标。
+stage: M0
+criteria:
+  # A. 判定准确性
+  - id: fingers_recall
+    name: 手指缺失检出率（仲裁后，按会话）
+    metric: fingers.session.system.recall
+    op: ">="
+    target: 0.90
+    min_n: 30
+  - id: fingers_false_alarm
+    name: 健全手误报率（仲裁后，按会话）
+    metric: fingers.session.system.false_alarm_rate
+    op: "<="
+    target: 0.05
+    min_n: 60
+  - id: fingers_l1_recall
+    name: 手指缺失 L1 单独检出率（按图片）
+    metric: fingers.image.l1.recall
+    op: record
+  - id: fingers_l2_recall
+    name: 手指缺失 L2 单独检出率（按图片）
+    metric: fingers.image.l2.recall
+    op: record
+  - id: limbs_accuracy
+    name: 四肢判定与人工一致率（按会话）
+    metric: limbs.session.system.accuracy
+    op: ">="
+    target: 0.95
+    min_n: 30
+  - id: nails_recall
+    name: 美甲检出率（按会话）
+    metric: nails.session.system.recall
+    op: record
+  - id: tattoo_baseline
+    name: 纹身检出率基线（L2，按会话）
+    metric: tattoo.session.system.recall
+    op: record
+  - id: scar_baseline
+    name: 疤痕检出率基线（L2，按会话）
+    metric: scar.session.system.recall
+    op: record
+  - id: hair_baseline
+    name: 染发检出率基线（按会话）
+    metric: hair.session.system.recall
+    op: record
+  - id: manual_rate
+    name: 手指项需人工比例（按会话）
+    metric: fingers.session.system.manual_rate
+    op: record
+
+  # B. 防作弊
+  - id: replay_interception
+    name: 回放攻击被随机挑战拦截
+    metric: liveness.attack.replay.interception
+    op: ">="
+    target: 1.0
+    min_n: 10
+  - id: genuine_false_reject
+    name: 真人被随机挑战误拦
+    metric: liveness.genuine_false_reject
+    op: "<="
+    target: 0.05
+    min_n: 30
+
+  # C. 体验
+  - id: completion_rate
+    name: 检测完成率（无超时步骤）
+    metric: sessions.completion_rate
+    op: ">="
+    target: 0.90
+    min_n: 30
+  - id: duration_median
+    name: 完成时长中位数（秒）
+    metric: sessions.duration_median_s
+    op: "<="
+    target: 180
+
+  # D. 性能
+  - id: device_latency
+    name: 端侧手部推理 P95（毫秒）
+    metric: sessions.device_hand_ms_p95
+    op: "<="
+    target: 100
+  - id: l2_latency
+    name: L2 单次返回 P95（毫秒）
+    metric: latency.l2.p95_ms
+    op: "<="
+    target: 5000

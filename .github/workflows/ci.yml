@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: System libraries for MediaPipe
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2 libgl1
+      - name: Install
+        run: pip install -e ".[mediapipe,dev]"
+      - name: Check web demo config is in sync
+        run: limbcheck export-web-config && git diff --exit-code apps/web-demo/config.generated.json
+      - name: Tests
+        run: pytest -q

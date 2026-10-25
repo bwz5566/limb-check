@@ -1,0 +1,9 @@
+# CPU 即可运行的基线：MediaPipe 关键点 + 肤色轮廓复核 + 头发分割。L2 从环境变量读取（未设置则不用）。
+name: mediapipe-skin
+keypoints: {type: mediapipe}
+contour: {type: skin}
+segmenter: {type: mpseg}
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+vlm: env            # 读 VLM_BASE_URL / VLM_MODEL / VLM_API_KEY；不需要 L2 时写 none
+mirrored: false     # 图片是否为自拍镜像画面（网页 demo 导出的是未镜像原始画面）
+plugins: []         # 自定义节点所在模块，如 [mycompany.limbcheck_ext]

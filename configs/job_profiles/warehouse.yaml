@@ -1,0 +1,17 @@
+id: warehouse
+name: 仓储搬运
+description: 需四肢活动正常，可下蹲搬抬
+requirements:
+  - 四肢活动正常
+  - 能下蹲后起立
+  - 双手能完成抓握
+steps: [env, stand, back, arms, legs, squat, palms, backs, flex, challenge]
+checks:
+  limbs:    {enabled: true, mode: judge, params: {upper: true, lower: true}}
+  fingers:  {enabled: true, mode: judge, params: {pinch: false}}
+  nails:    {enabled: true, mode: record_only}
+  tattoo:   {enabled: true, mode: record_only}
+  scar:     {enabled: true, mode: record_only}
+  hair:     {enabled: true, mode: record_only}
+  liveness: {enabled: true, mode: judge}
+basis: []

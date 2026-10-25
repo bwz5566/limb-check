@@ -1,0 +1,16 @@
+id: line
+name: 普通产线
+description: 需双手完成抓握，上肢活动正常
+requirements:
+  - 双手能完成抓握
+  - 上肢活动正常
+steps: [env, stand, back, arms, palms, backs, flex, challenge]
+checks:
+  limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
+  fingers:  {enabled: true, mode: judge, params: {pinch: false}}
+  nails:    {enabled: true, mode: record_only}
+  tattoo:   {enabled: true, mode: record_only}
+  scar:     {enabled: true, mode: record_only}
+  hair:     {enabled: true, mode: record_only}
+  liveness: {enabled: true, mode: judge}
+basis: []
