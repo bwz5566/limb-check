@@ -14,7 +14,7 @@ cd apps/web-demo
 python server.py            # Windows 也可以双击 start.bat；macOS 双击 start.command
 ```
 
-用 Chrome 或 Edge 打开 http://localhost:8000 。必须经 `server.py` 访问，直接双击 `index.html` 打不开。
+用 Chrome 或 Edge 打开 http://localhost:8000 。排查误判时打开 http://localhost:8000/?debug ：画面上会实时标出每根手指（中节 / 末节）、指缝、肢体是否"确认看到"（绿 = 确认，红 = 没确认，灰 = 无法判断）以及掌长、亮度、背景是否接近肤色。必须经 `server.py` 访问，直接双击 `index.html` 打不开。
 
 浏览器只允许在 `localhost` 或 https 页面上打开摄像头。用手机测试时，可以把电脑上的服务通过 https 反向代理出去，
 或在手机上用 USB 调试转发端口；同一局域网直接访问 `http://电脑IP:8000` 会被浏览器拒绝打开摄像头。

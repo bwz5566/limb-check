@@ -6,6 +6,7 @@ import { FilesetResolver, PoseLandmarker, HandLandmarker, DrawingUtils } from '.
 
 const Q = new URLSearchParams(location.search);
 const FAST = Q.has('fast');          // 自测用：缩短超时
+const DEBUG = Q.has('debug');        // 调试显示：画面上标出每根手指、指缝、肢体是否"确认看到"及原因
 const SCHEMA = 'limbcheck.demo_report/v2';
 const SRC_KP = 'L1:mediapipe-web', SRC_NAILS = 'L1:deltaE';
 
@@ -867,6 +868,55 @@ function motionPayload() {
   return steps.length ? { aspect: r3(W / H), fps: MOTION_FPS, steps } : null;
 }
 
+// ---------- 调试显示（?debug）：绿 = 像素上确认看到，红 = 没确认，灰 = 无法判断；文字在镜像画面上反向绘制以便阅读 ----------
+const DBG = { ok: '#22c55e', bad: '#ef4444', na: '#9ca3af' };
+function dbgText(t, x, y, color = '#fff', size = 16) {
+  ctx.save(); ctx.scale(-1, 1);
+  ctx.font = `bold ${size}px sans-serif`; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.fillStyle = color;
+  ctx.strokeText(t, -x, y); ctx.fillText(t, -x, y);
+  ctx.restore();
+}
+function dbgDot(p, color, r = 7) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke(); }
+function debugHands() {
+  const tipMin = TH.contour?.tip_on_mask_min ?? 0.5;
+  for (const h of S.hands) {
+    const ev = handEvidence(h), lm = h.lm, palm = palmLen(lm);
+    if (!ev) { dbgText('无法取样', lm[0].x, lm[0].y + 24, DBG.bad); continue; }
+    for (const f of FINGERS) {
+      const ids = FINGER_IDS[f], e = ev.fingers[f], ok = fingerSeen(ev, f);
+      dbgDot(lerp(lm[ids[2]], lm[ids[3]], 0.45), !ev.reliable ? DBG.na : e.distal >= tipMin ? DBG.ok : DBG.bad);
+      dbgDot(lerp(lm[ids[1]], lm[ids[2]], 0.45), !ev.reliable ? DBG.na : e.middle >= tipMin ? DBG.ok : DBG.bad, 5);
+      const t = lm[ids[3]];
+      dbgText(`${FINGER_CN[f]}${fingerExtended(lm, f) ? '' : '(弯)'} ${Math.round(e.middle * 100)}/${Math.round(e.distal * 100)}`, t.x, t.y - 10, ok ? DBG.ok : DBG.bad, 13);
+    }
+    for (const [a, b] of GAP_PAIRS) {
+      const g = ev.gaps[`${a}-${b}`], pa = lerp(lm[FINGER_IDS[a][2]], lm[FINGER_IDS[a][3]], 0.5), pb = lerp(lm[FINGER_IDS[b][2]], lm[FINGER_IDS[b][3]], 0.5);
+      const c = g === true ? DBG.ok : g === false ? DBG.bad : DBG.na;
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+      dbgDot(lerp(pa, pb, 0.5), c, 4);
+    }
+    const lines = [
+      `${SIDE_CN[h.side] || '手'} ${facing(h) === 'palm' ? '掌心' : facing(h) === 'back' ? '手背' : '?'} 置信 ${r2(h.score)}`,
+      `掌长 ${Math.round(palm)}px（要求 ≥ ${Math.round(TH.quality.min_hand_size * H)}）`,
+      `掌面皮肤 ${Math.round(ev.palm * 100)}%  背景像肤色 ${Math.round(ev.bg_skin * 100)}%${ev.reliable ? '' : '（背景不可靠）'}`,
+      `看不清：${unseenFingers(ev).map(f => FINGER_CN[f]).join('、') || '无'}  未分开：${notSpread(ev).map(p => p.map(f => FINGER_CN[f]).join('-')).join('、') || '无'}`,
+    ];
+    const y0 = Math.min(lm[0].y + 0.4 * palm, H - lines.length * 18 - 6);
+    lines.forEach((t, i) => dbgText(t, lm[0].x + 0.6 * palm, y0 + i * 18, '#fff', 14));
+  }
+}
+function debugBody(st) {
+  if (!S.body) return;
+  const miss = st?.ctMissing || [];
+  for (const [limb, segs] of Object.entries(LIMB_SEGS)) {
+    const bad = miss.includes(limb);
+    for (const [a, b] of segs) { const pa = S.body.joints[a], pb = S.body.joints[b]; ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.strokeStyle = bad ? DBG.bad : DBG.ok; ctx.lineWidth = 5; ctx.stroke(); }
+    const j = S.body.joints[segs[1][1]];
+    dbgText(`${LIMB_CN[limb]} 可见度 ${r2(Math.min(...LIMBS[limb].map(k => S.body.vis[k] ?? 0)))}${bad ? ' 不在轮廓内' : ''}`, j.x, j.y + 20, bad ? DBG.bad : '#fff', 14);
+  }
+  dbgText(`亮度 ${Math.round(S.brightness)}  人数 ${S.poseCount}  ${W}×${H}`, W - 10, 24, '#fff', 15);
+}
+
 // ---------- 主循环 ----------
 function setHold(p) { $('#holdBar').style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`; }
 
@@ -915,11 +965,13 @@ function loop() {
       masks.forEach(m => { if (m !== S.poseMask) try { m.close?.(); } catch { /* 已释放 */ } });
       recordMotion(step, now);
       if (S.pose) { draw.drawConnectors(S.pose, PoseLandmarker.POSE_CONNECTIONS, { color: '#22d3ee', lineWidth: 3 }); draw.drawLandmarks(S.pose, { color: '#f97316', radius: 3 }); }
+      if (DEBUG) debugBody(step.state);
     } else { S.pose = S.body = null; S.poseCount = 0; }
     if (step.needs.includes('hands')) {
       const t = performance.now(), r = handLm.detectForVideo(grab, now); S.perf.hand.push(performance.now() - t);
       readHands(r);
       for (const h of S.hands) { draw.drawConnectors(h.raw, HandLandmarker.HAND_CONNECTIONS, { color: '#22d3ee', lineWidth: 3 }); draw.drawLandmarks(h.raw, { color: '#f97316', radius: 3 }); }
+      if (DEBUG) debugHands();
     } else S.hands = [];
     if (S.perf.pose.length > 3000) S.perf.pose.splice(0, 1000);
     if (S.perf.hand.length > 3000) S.perf.hand.splice(0, 1000);
