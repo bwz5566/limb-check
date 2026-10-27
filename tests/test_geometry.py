@@ -134,3 +134,24 @@ def test_mm_per_px_from_hand_and_body():
     kb = mm_per_px_body(b, anatomy)
     assert kb == pytest.approx(min(250 / 90.3, 300 / 100.5), rel=0.02)
     assert mm_per_px_hands([], anatomy) is None and mm_per_px_body(None, anatomy) is None
+
+
+def test_nails_only_measured_on_extended_fingers(thresholds):
+    import cv2
+
+    from conftest import draw_hand
+    from limbcheck.geometry import nails_delta_e, nails_result
+
+    h = make_hand(spread=True)
+    img = draw_hand(h.pts)
+    assert nails_result(img, [h], thresholds["nails"], "L1:test").positive is False
+    for tip, dip in ((8, 7), (12, 11), (16, 15)):          # 食指、中指、无名指涂红色甲油
+        c = h.pts[tip] + 0.3 * (h.pts[dip] - h.pts[tip])
+        cv2.circle(img, tuple(int(v) for v in c), 6, (200, 20, 40), -1)
+    r = nails_result(img, [h], thresholds["nails"], "L1:test")
+    assert r.positive is True and "食指" in r.findings[0].note
+    bent = make_hand(spread=True)
+    for i in (7, 8, 11, 12, 15, 16, 19, 20):             # 四指蜷起：关键点折回掌面
+        bent.pts[i] = bent.pts[i - 2] + (bent.pts[0] - bent.pts[i - 2]) * 0.3
+    assert sum(v is None for v in nails_delta_e(img, bent.pts).values()) >= 4
+    assert nails_result(img, [bent], thresholds["nails"], "L1:test").positive is None

@@ -163,15 +163,18 @@ def mean_color(img, cx: float, cy: float, r: float) -> np.ndarray:
     return img[y0:y1, x0:x1].reshape(-1, 3).mean(axis=0)
 
 
-def nails_delta_e(img, pts) -> dict[str, float]:
-    """手背中心取肤色，指尖向 DIP 方向 30% 处取指甲颜色，返回每个手指的 Lab 色差 ΔE。"""
-    palm = palm_len(pts)
-    skin_c = (pts[0] + pts[5] + pts[17]) / 3
-    skin = rgb_to_lab(mean_color(img, skin_c[0], skin_c[1], max(4, 0.08 * palm)))
+def nails_delta_e(img, pts) -> dict[str, float | None]:
+    """每根手指指甲与同一根手指中节皮肤的 Lab 色差 ΔE。指甲取指尖向 DIP 方向 30% 处；
+    参照取同一根手指中节（光照、角度与指甲相同，比手背中心可靠）。没伸直的手指关键点是"脑补"的，返回 None 不测。"""
     out = {}
     for f, ids in HAND_FINGER_IDS.items():
+        if not finger_extended(pts, f, {}):
+            out[f] = None
+            continue
         tip, dip = pts[ids[3]], pts[ids[2]]
         seg = dist(tip, dip)
+        ref = (pts[ids[1]] + pts[ids[2]]) / 2
+        skin = rgb_to_lab(mean_color(img, ref[0], ref[1], max(3, 0.18 * seg)))
         c = tip + 0.3 * (dip - tip)
         lab = rgb_to_lab(mean_color(img, c[0], c[1], max(3, 0.18 * seg)))
         out[f] = round(float(np.linalg.norm(lab - skin)), 1)
@@ -186,10 +189,14 @@ def nails_result(img, hands: list, th_nails: dict, source: str, mirrored: bool =
         if facing(h.pts, h.side, mirrored) != "back":
             continue
         de = nails_delta_e(img, h.pts)
-        worst = max(de.values())
         side = h.side or "unknown"
+        got = [v for v in de.values() if v is not None]
+        if len(got) < 3:
+            findings.append(Finding("nails", f"{side}_hand", "not_visible", False, 0.0, source, de, "伸直的手指不足 3 根，无法判断"))
+            continue
+        worst = max(got)
         if worst > thr:
-            flagged = [f for f, v in de.items() if v > thr]
+            flagged = [f for f, v in de.items() if v is not None and v > thr]
             parts.append(f"{side}_hand")
             conf = min(1.0, 0.55 + (worst - thr) / thr)
             findings.append(Finding("nails", f"{side}_hand", "polish", True, round(conf, 3), source, de,
@@ -202,6 +209,8 @@ def nails_result(img, hands: list, th_nails: dict, source: str, mirrored: bool =
         return None
     if parts:
         return CheckResult("nails", source, True, max(f.confidence for f in findings if f.positive), parts, True, findings)
+    if not confs:
+        return CheckResult("nails", source, None, 0.0, [], False, findings, "手指没有伸直，无法判断指甲")
     return CheckResult("nails", source, False, round(min(confs), 3), [], True, findings)
 
 

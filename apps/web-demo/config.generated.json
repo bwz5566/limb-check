@@ -230,7 +230,7 @@
         "touch_ratio": 0.45,
         "min_count": 4,
         "min_alternation": 0.7,
-        "max_cv": 0.5
+        "max_cv": 0.8
       },
       "confidence": {
         "normal": 0.85,

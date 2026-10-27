@@ -39,7 +39,7 @@ contour:
   mask_dilate_px: 3
 
 nails:
-  delta_e: 22                # 指甲与手背肤色 Lab 色差，超过记"疑似美甲"
+  delta_e: 22                # 指甲与同一根手指中节皮肤的 Lab 色差，超过记"疑似美甲"（只测伸直的手指）
 
 hair:
   dyed_chroma_min: 18        # 头发像素平均彩度高于此值记"疑似染色"（粗略启发式，只作基线）
@@ -54,7 +54,7 @@ motion:
   legs: {min_lift: 0.5, max_asym: 0.35, max_sway: 0.15}       # 抬腿比例（大腿抬平 = 1）、左右差、抬腿时髋部左右晃动（躯干长）
   squat: {min_depth: 0.25, max_knee_asym_deg: 25, max_shift: 0.15}   # 下蹲深度（腿长）、最低点左右膝角差、身体侧移（躯干长）
   march: {lift: 0.35, min_count: 6, min_alternation: 0.7, max_cv: 0.45, max_count_diff: 2}   # 高抬腿：抬腿判定、次数、左右交替比例、间隔变异系数、左右次数差
-  cross_touch: {touch_ratio: 0.45, min_count: 4, min_alternation: 0.7, max_cv: 0.5}         # 交叉摸肩：手腕到对侧肩距离 < 0.45 肩宽算摸到
+  cross_touch: {touch_ratio: 0.45, min_count: 4, min_alternation: 0.7, max_cv: 0.8}         # 交叉摸肩：手腕到对侧肩距离 < 0.45 肩宽算摸到；跟着语音提示做，节律放宽
   confidence: {normal: 0.85, normal_single: 0.7, abnormal: 0.6}   # 结论置信度：≥ 2 个身体动作都正常 / 只有 1 个 / 发现问题
 
 multi_frame: {window: 9, vote: 0.6}   # 建议：9 帧中 ≥60% 一致才采纳（实时链路用，离线评测为单帧）

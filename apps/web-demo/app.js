@@ -162,12 +162,14 @@ function cropImage(cx, cy, size, out = 96) {
   c.getContext('2d').drawImage(grab, cx - size / 2, cy - size / 2, size, size, 0, 0, out, out);
   return c.toDataURL('image/jpeg', 0.9);
 }
-// 手背中心取肤色，指尖向 DIP 方向 30% 处取指甲颜色（取当前帧 grab 的像素）
+// 指甲颜色：指尖向 DIP 方向 30% 处；参照肤色取同一根手指中节（与指甲同样的光照、同样的角度，比手背中心可靠）。
+// 只测伸直的手指：蜷起的手指关键点是"脑补"的，取到的是指侧皮肤或掌面，会误报（公式与 limbcheck.geometry.nails_delta_e 一致）
 function nailSamples(lm, withImg = false) {
-  const palm = palmLen(lm);
-  const skin = toLab(meanColor((lm[0].x + lm[5].x + lm[17].x) / 3, (lm[0].y + lm[5].y + lm[17].y) / 3, Math.max(4, 0.08 * palm)));
   return FINGERS.map(f => {
-    const tip = lm[FINGER_IDS[f][3]], dip = lm[FINGER_IDS[f][2]], seg = dist(tip, dip);
+    const ids = FINGER_IDS[f], tip = lm[ids[3]], dip = lm[ids[2]], seg = dist(tip, dip);
+    if (!fingerExtended(lm, f)) return { finger: f, deltaE: null, flag: false, img: null };
+    const ref = lerp(lm[ids[1]], lm[ids[2]], 0.5);
+    const skin = toLab(meanColor(ref.x, ref.y, Math.max(3, 0.18 * seg)));
     const c = { x: tip.x + 0.3 * (dip.x - tip.x), y: tip.y + 0.3 * (dip.y - tip.y) };
     const lab = toLab(meanColor(c.x, c.y, Math.max(3, 0.18 * seg)));
     const dE = Math.round(Math.hypot(lab[0] - skin[0], lab[1] - skin[1], lab[2] - skin[2]) * 10) / 10;
@@ -179,7 +181,9 @@ function nailsResult(hands, source = SRC_NAILS) {
   for (const h of hands) {
     if (facing(h) !== 'back') continue;   // 只对手背朝前的手判断
     const de = Object.fromEntries(nailSamples(h.lm).map(n => [n.finger, n.deltaE]));
-    const w = Math.max(...Object.values(de)), side = h.side || 'unknown';
+    const got = Object.values(de).filter(v => v != null), side = h.side || 'unknown';
+    if (got.length < 3) { findings.push(Finding('nails', `${side}_hand`, 'not_visible', false, 0, source, de, '伸直的手指不足 3 根，无法判断')); continue; }
+    const w = Math.max(...got);
     let conf;
     if (w > thr) {
       parts.push(`${side}_hand`);
@@ -193,6 +197,7 @@ function nailsResult(hands, source = SRC_NAILS) {
   }
   if (!findings.length) return null;
   if (parts.length) return Result('nails', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), parts, true, findings);
+  if (!confs.length) return Result('nails', source, null, 0, [], false, findings, '手指没有伸直，无法判断指甲');
   return Result('nails', source, false, r3(Math.min(...confs)), [], true, findings);
 }
 
@@ -247,8 +252,10 @@ function handEvidence(h) {
     gaps[`${a}-${b}`] = v.length ? !v.every(Boolean) : null;
   }
   const palmCov = cover([center, ...PALM_IDS.flatMap(i => [lerp(center, lm[i], 0.33), lerp(center, lm[i], 0.66)])]);
-  // 背景：四指指尖沿手指方向再外推 0.35 掌长，多数也"像皮肤"说明背景接近肤色，像素证据不可靠
-  const bg = FINGERS.filter(f => f !== 'thumb').map(f => { const a = lm[FINGER_IDS[f][2]], b = lm[FINGER_IDS[f][3]], L = dist(a, b) + 1e-6; return skin({ x: b.x + (b.x - a.x) / L * 0.35 * palm, y: b.y + (b.y - a.y) / L * 0.35 * palm }); }).filter(v => v !== null);
+  // 背景：伸直的四指指尖沿手指方向再外推 0.35 掌长，多数也"像皮肤"说明背景接近肤色，像素证据不可靠。
+  // 只用伸直的手指（蜷起的手指外推会落到掌面、脸上）；伸直的不足两根时不判断背景（此时本来就无法逐指确认）
+  const ext = FINGERS.filter(f => f !== 'thumb' && fingerExtended(lm, f));
+  const bg = (ext.length >= 2 ? ext : []).map(f => { const a = lm[FINGER_IDS[f][2]], b = lm[FINGER_IDS[f][3]], L = dist(a, b) + 1e-6; return skin({ x: b.x + (b.x - a.x) / L * 0.35 * palm, y: b.y + (b.y - a.y) / L * 0.35 * palm }); }).filter(v => v !== null);
   const bgSkin = bg.length ? bg.filter(Boolean).length / bg.length : 0;
   return { fingers, gaps, palm: r2(palmCov), bg_skin: r2(bgSkin), reliable: bgSkin < 0.5 };
 }
@@ -277,6 +284,12 @@ function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:sk
   let unreliable = false, closed = false;
   for (const h of hands) {
     const ev = handEvidence(h), side = h.side || 'unknown';
+    const bent = FINGERS.filter(f => !fingerExtended(h.lm, f));
+    if (openHand && bent.length) {       // 张开视角里手指蜷着：关键点给出的长度是"脑补"的，无法确认
+      closed = true;
+      findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, { bent }, `${SIDE_CN[side] || '手'}${bent.map(f => FINGER_CN[f]).join('、')}没有伸直，无法确认`));
+      continue;
+    }
     if (!ev) continue;
     if (!ev.reliable) { unreliable = true; continue; }
     if (ev.palm < (TH.contour?.palm_on_mask_min ?? 0.75)) { parts.push(`${side}_hand.palm`); findings.push(Finding('fingers', `${side}_hand.palm`, 'palm_off_mask', true, r3(0.5 + 0.5 * (1 - ev.palm)), source, ev.palm, `掌面只有 ${Math.round(ev.palm * 100)}% 是皮肤，疑似手掌 / 手背残缺或被遮挡`)); }
@@ -291,8 +304,8 @@ function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:sk
     if (openHand && notSpread(ev).length) { closed = true; findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, notSpread(ev).map(p => p.join('-')), `${SIDE_CN[side] || '手'}手指没有分开，无法逐指确认`)); }
   }
   if (parts.length) return Result('fingers', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), [...new Set(parts)].sort(), true, findings);
+  if (closed) return Result('fingers', source, null, 0, [], false, findings, '手指没有完全伸直分开，无法逐指确认每根手指都在');
   if (unreliable) return Result('fingers', source, null, 0, [], false, findings, '背景与肤色太接近，无法用像素复核手指');
-  if (closed) return Result('fingers', source, null, 0, [], false, findings, '手指没有分开，无法逐指确认每根手指都在');
   if (hands.length < expected || !covs.length) return Result('fingers', source, null, 0, [], false, findings, `只检测到 ${hands.length} 只手`);
   return Result('fingers', source, false, r3(0.5 + 0.5 * Math.min(...covs)), [], true, findings);
 }
@@ -549,11 +562,11 @@ function handPose(want) {
         st.metrics[`${name}伸直手指`] = c;
         if (facing(h) !== want) return { hint: want === 'palm' ? `${name}请掌心朝向镜头` : `${name}请翻转为手背朝前` };
         const strict = now - st.start < 6000;
+        if (c < needOpen(st, now)) return { hint: `${name}请把五指完全伸直张开` };      // 手指蜷着永远不算完成（超时后照常采集并交人工）
         if (ev && !ev.reliable) { if (strict) return { hint: '背景与肤色太接近，请站到深色或纯色背景前' }; soft = '背景与肤色太接近，结果将交人工复核'; continue; }
         const hidden = unseenFingers(ev);
         if (hidden.length) { const t = `${name}${hidden.map(f => FINGER_CN[f]).join('、')}看不清，请张开五指、不要遮挡`; if (strict) return { hint: t }; soft = t; }
         else if (ev && notSpread(ev).length) { const t = `${name}请把五指尽量分开`; if (strict) return { hint: t }; soft = soft || t; }
-        if (c < needOpen(st, now)) return { hint: `${name}请张开五指` };
         if (c < 5 && !soft) soft = `${name}请尽量张开五指`;
       }
       return { ok: true, hint: soft };
@@ -794,8 +807,9 @@ const STEP_LIB = {
       let warn = '';
       for (const h of S.hands) {
         const k = st.prog[h.side]; if (k == null || k >= 4) continue;
-        const target = FINGERS[k + 1];
-        if (dist(h.lm[4], h.lm[FINGER_IDS[target][3]]) >= TH.fingers.pinch_ratio * palmLen(h.lm)) continue;
+        const target = FINGERS[k + 1], d = dist(h.lm[4], h.lm[FINGER_IDS[target][3]]) / palmLen(h.lm);
+        st.dist = { ...st.dist, [`${SIDE_CN[h.side]}拇指-${FINGER_CN[target]}距离`]: `${r2(d)}（需 < ${TH.fingers.pinch_ratio}）` };
+        if (d >= TH.fingers.pinch_ratio) continue;
         const ev = handEvidence(h);
         const others = FINGERS.filter(f => f !== 'thumb' && f !== target);
         const open = others.filter(f => fingerExtended(h.lm, f) && fingerSeen(ev, f)).length;
@@ -805,7 +819,7 @@ const STEP_LIB = {
         st.prog[h.side]++;
         if (st.evidence.length < 8) { const p = h.lm[4]; st.evidence.push({ label: `${SIDE_CN[h.side]}拇指碰${FINGER_CN[target]}`, img: cropImage(p.x, p.y, 1.6 * palmLen(h.lm), 160) }); }
       }
-      st.metrics = { 右手完成: `${st.prog.right}/4`, 左手完成: `${st.prog.left}/4` };
+      st.metrics = { 右手完成: `${st.prog.right}/4`, 左手完成: `${st.prog.left}/4`, ...st.dist };
       if (st.prog.right >= 4 && st.prog.left >= 4) { st.evidence.push({ label: '对捏完成', img: snapshot(true, handsBox(), 480, 0.8) }); return { done: true }; }
       const side = st.prog.right < 4 ? 'right' : 'left';
       return { hint: warn || `${SIDE_CN[side]}：拇指碰${FINGER_CN[FINGERS[st.prog[side] + 1]]}` };
@@ -1168,7 +1182,7 @@ function renderReport() {
       <table><tr><th>检测项</th><th>L1 专用模型</th><th>L2 大模型</th><th>仲裁</th></tr>${checks.map(c => `<tr><td>${esc(CHECKS[c]?.name || c)}</td><td>${resultCell(f.l1?.[c])}</td><td>${resultCell(f.l2?.[c])}</td><td>${a[c] ? `${decisionCell({ ...a[c] })}<br><span class="muted small">${esc(shortReason(a[c].reason))}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">无</td></tr>'}</table></div>`;
   }).join('') || '<p class="muted">没有采集到证据帧</p>';
   const handRows = S.results.filter(r => r.hands?.length).flatMap(r => r.hands.map(h => `<tr><td>${esc(VIEWS[h.view].name)}</td><td>${SIDE_CN[h.side] || '?'}</td><td>${h.extended}</td><td>${FINGERS.map(f => `${FINGER_CN[f]} ${h.fingers[f].ratio}${h.fingers[f].short ? ' <b class="s-review">疑似缺失或短缩</b>' : ''}`).join('<br>')}</td><td>${h.mid_to_palm}</td></tr>`)).join('');
-  const nailRows = S.results.flatMap(r => r.nails || []).map(h => `<p><b>${SIDE_CN[h.side] || '?'}</b></p><div class="thumbs nails">${h.nails.map(n => `<figure><img src="${n.img}"><figcaption class="muted small">${FINGER_CN[n.finger]} ΔE ${n.deltaE}${n.flag ? ' <b class="s-review">疑似美甲</b>' : ''}</figcaption></figure>`).join('')}</div>`).join('');
+  const nailRows = S.results.flatMap(r => r.nails || []).map(h => `<p><b>${SIDE_CN[h.side] || '?'}</b></p><div class="thumbs nails">${h.nails.map(n => n.deltaE == null ? `<figure><figcaption class="muted small">${FINGER_CN[n.finger]} 未伸直，未测</figcaption></figure>` : `<figure><img src="${n.img}"><figcaption class="muted small">${FINGER_CN[n.finger]} ΔE ${n.deltaE}${n.flag ? ' <b class="s-review">疑似美甲</b>' : ''}</figcaption></figure>`).join('')}</div>`).join('');
   const revBlock = !S.reviewsDone.length ? `<p class="muted">${VLM.vlm ? '本次未启用大模型复核' : '未配置大模型（见 apps/web-demo/README.md）'}</p>` : S.reviewsDone.map(rv => `<details><summary>${esc(VIEWS[rv.view]?.name || rv.view)}${rv.model ? `（${esc(rv.model)}，提示词 ${esc(rv.prompt_version)}，${rv.latency_ms} 毫秒）` : ''}${rv.errors?.length ? ` <span class="s-review small">${esc(rv.errors.join('；'))}</span>` : ''}</summary><pre class="raw">${esc(rv.text || '')}</pre></details>`).join('');
   const marksBlock = marksSection();
   const motionBlock = motionSection();

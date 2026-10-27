@@ -33,7 +33,7 @@ DEFAULT_TH = {
     "legs": {"min_lift": 0.5, "max_asym": 0.35, "max_sway": 0.15},
     "squat": {"min_depth": 0.25, "max_knee_asym_deg": 25, "max_shift": 0.15},
     "march": {"lift": 0.35, "min_count": 6, "min_alternation": 0.7, "max_cv": 0.45, "max_count_diff": 2},
-    "cross_touch": {"touch_ratio": 0.45, "min_count": 4, "min_alternation": 0.7, "max_cv": 0.5},
+    "cross_touch": {"touch_ratio": 0.45, "min_count": 4, "min_alternation": 0.7, "max_cv": 0.8},
     "confidence": {"normal": 0.85, "normal_single": 0.7, "abnormal": 0.6},
 }
 
