@@ -21,20 +21,22 @@ python server.py            # Windows 也可以双击 start.bat；macOS 双击 s
 
 ## 启用大模型复核（L2）
 
-启动前设置环境变量（任何 OpenAI 兼容接口都可以）：
+把 `apps/web-demo/.env.example` 复制一份，改名为 `.env`，填上 Key 后重新启动 `server.py`（任何 OpenAI 兼容接口都可以）：
 
-```bash
-# 内网部署的 Qwen-VL（vLLM / vLLM-Ascend，见 deploy/）
-export VLM_BASE_URL=http://10.0.0.8:8001/v1
-export VLM_MODEL=Qwen/Qwen3-VL-8B-Instruct
-export VLM_SCHEMA=1            # 可选：vLLM 支持用 JSON Schema 约束输出
+```ini
+# 阿里云百炼：只填这一项（默认 qwen3.7-plus；截图会发到外部服务，需在授权书里写明）
+VLM_API_KEY=sk-...
+# 可选：换模型
+VLM_MODEL=qwen3.8-max
 
-# 或阿里云百炼（截图会发到外部服务，需在授权书里写明）
-export VLM_API_KEY=sk-...      # 只设这一项时默认 DashScope + qwen3.7-plus
-python server.py
+# 或内网部署的 Qwen-VL（vLLM / vLLM-Ascend，见 deploy/）
+# VLM_BASE_URL=http://10.0.0.8:8001/v1
+# VLM_MODEL=Qwen/Qwen3-VL-8B-Instruct
+# VLM_SCHEMA=1
 ```
 
-Windows 命令行用 `set VLM_API_KEY=sk-...`。页面右上角会显示“大模型复核：已启用（模型名）”。
+`.env` 已加入 `.gitignore`，不会提交到 git。也可以不建文件，启动前用环境变量设置同名项（`set VLM_API_KEY=...` / `export VLM_API_KEY=...`），环境变量优先。
+页面右上角会显示“大模型复核：已启用（模型名）”。
 
 ## 流程
 

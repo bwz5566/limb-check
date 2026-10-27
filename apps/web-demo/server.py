@@ -4,7 +4,8 @@
 只用 Python 标准库（不需要 pip install），直接复用仓库里的 limbcheck.prompts / vlm / arbiter，
 保证网页、离线评测、将来的服务端用同一套提示词、输出解析和仲裁规则。
 
-环境变量：
+配置：写在同目录的 .env 文件里（复制 .env.example 改名为 .env 再填写；.env 不会提交到 git），
+或启动前设置同名环境变量（环境变量优先）：
   VLM_API_KEY   模型服务的 API Key（本地 vLLM 可不设）
   VLM_BASE_URL  OpenAI 兼容接口地址；只设了 VLM_API_KEY 时默认 https://dashscope.aliyuncs.com/compatible-mode/v1
   VLM_MODEL     模型名；默认 qwen3.7-plus（DashScope）
@@ -25,6 +26,23 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
+
+
+def load_env_file(path: Path) -> None:
+    """读取 KEY=VALUE 格式的 .env（# 开头为注释）；已设置的环境变量不覆盖。"""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k and v:
+            os.environ.setdefault(k, v)
+
+
+load_env_file(ROOT / ".env")
 sys.path.insert(0, str(REPO))
 os.environ.setdefault("LIMBCHECK_CONFIG_DIR", str(REPO / "configs"))
 

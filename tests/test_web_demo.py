@@ -119,3 +119,15 @@ def test_session_coordination_from_motion(server):
     c = out["by_check"]["coordination"]
     assert c["decision"] == "fail_suggested" and out["overall"] == "fail_suggested"     # 只有关键点一路，不自动判不符合
     assert "coordination" not in server.arbitrate_session("warehouse", [])["by_check"]
+
+
+def test_env_file_does_not_override_environment(server, tmp_path, monkeypatch):
+    f = tmp_path / ".env"
+    f.write_text("# 注释\nVLM_API_KEY=sk-file\nVLM_MODEL=\nLIMBCHECK_TEST_X='quoted'\n", encoding="utf-8")
+    monkeypatch.delenv("VLM_API_KEY", raising=False)
+    monkeypatch.setenv("LIMBCHECK_TEST_X", "env")
+    monkeypatch.delenv("VLM_MODEL", raising=False)
+    server.load_env_file(f)
+    import os
+    assert os.environ["VLM_API_KEY"] == "sk-file" and os.environ["LIMBCHECK_TEST_X"] == "env" and "VLM_MODEL" not in os.environ
+    monkeypatch.delenv("VLM_API_KEY")
