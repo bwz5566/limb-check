@@ -13,7 +13,7 @@
 自定义策略用 @register("arbiter", "名称") 注册一个 fn(l1, l2, cfg, attempt) -> (decision, reason)；
 arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）。
 
-纹身、疤痕用 policy 策略：L2 结果里每处标记已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
+纹身、疤痕、头发用 policy 策略：L2 结果里每处标记（头发为 L1 的发色、发长判定）已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
 判为 pass / review / block / clean，策略据此给结论：block → 疑似问题·待人工确认（附命中条款）；
 clean（疑似污渍）→ 请清洁后重做；review → 人工核验；全部符合 → 按默认规则看置信度。
 """
@@ -101,7 +101,8 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
     return REVIEW, f"重做后置信度仍低（{conf:.2f}）"
 
 
-def _verdicts(r: CheckResult | None) -> list[tuple[str, str]]:
+def _verdicts(r: CheckResult | None) -> list[tuple[str, str, float]]:
+    """(verdict, 说明, 置信度)。value 有 kind 的（逐处标记、发色发长）用 note，跨处规则用命中的条款。"""
     out = []
     for f in (r.findings if r else []):
         v = f.value if isinstance(f.value, dict) else None
@@ -109,6 +110,11 @@ def _verdicts(r: CheckResult | None) -> list[tuple[str, str]]:
             texts = [x["text"] for x in v.get("rules") or [] if x.get("action") == v["verdict"]]
             out.append((v["verdict"], f.note if v.get("kind") else "；".join(texts), f.confidence))
     return out
+
+
+def _whole_item(r: CheckResult | None) -> bool:
+    """整体判定（发色 hair_color、发长 hair_length），不是逐处标记。"""
+    return any(isinstance(f.value, dict) and str(f.value.get("kind", "")).startswith("hair_") for f in (r.findings if r else []))
 
 
 @register("arbiter", "policy")
@@ -130,8 +136,10 @@ def policy_judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | Non
     if pick("review"):
         return REVIEW, "需人工核验：" + "；".join(pick("review"))
     decision, reason = judge(l1, l2, cfg, attempt)
-    marks = [t for v, t, _ in vs if v == "pass" and t]
-    return decision, (f"发现 {len(marks)} 处，均符合录用标准；" if marks else "") + reason
+    passed = [t for v, t, _ in vs if v == "pass" and t]
+    if _whole_item(l1) or _whole_item(l2):      # 发色、发长：列出各项判定
+        return decision, ("；".join(passed) + "；" if passed else "") + reason
+    return decision, (f"发现 {len(passed)} 处，均符合录用标准；" if passed else "") + reason
 
 
 def _yn(r: CheckResult) -> str:

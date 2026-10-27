@@ -32,7 +32,7 @@ const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', r
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', left_foot: '左脚', right_foot: '右脚', left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿', arms: '双臂', legs: '双腿', whole_body: '全身', hands: '双手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定', long: '发长不符合', length_ok: '发长符合', length: '发长（只记录）' };
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
@@ -150,6 +150,7 @@ function toLab([r, g, b]) {
   const t = v => v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116;
   return [116 * t(Y) - 16, 500 * (t(X) - t(Y)), 200 * (t(Y) - t(Z))];
 }
+const deltaE = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 function meanColor(cx, cy, r) {
   const x0 = Math.max(0, Math.round(cx - r)), y0 = Math.max(0, Math.round(cy - r));
   const w = Math.max(1, Math.min(W - x0, Math.round(2 * r))), h = Math.max(1, Math.min(H - y0, Math.round(2 * r)));
@@ -523,7 +524,7 @@ const serverJudgeOn = () => !!(VLM.server_judge?.enabled && $('#useServer')?.che
 function requestAnalyze(view, image) {
   if (!serverJudgeOn()) return;
   const t0 = performance.now();
-  S.analyses.push(fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, image, job: S.job.id, strictness: S.strictness }) })
+  S.analyses.push(fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, image, job: S.job.id, strictness: S.strictness, meta: { gender: S.gender } }) })
     .then(async r => { const d = await r.json(); return r.ok ? { ...d, roundtrip_ms: Math.round(performance.now() - t0) } : { view, l1: null, errors: [d.error || r.statusText] }; })
     .catch(e => ({ view, l1: null, errors: [String(e)] })));
 }
@@ -780,6 +781,51 @@ const STEP_LIB = {
     },
     onTimeout(st) { if (S.body) { captureView(st, 'neck', st.firstImg ? [st.firstImg] : []); return 'review'; } return 'timeout'; },
   },
+  // 头发近景：正面（发色、发尾位置）→ 背面（扎起的长发、后脑挑染），坐着也能做。判定在服务端（configs/policies/hair.yaml）
+  hair: {
+    title: '头发近景（正面 → 背面）', needs: ['pose'], scope: 'hair', timeoutFactor: 1.5,
+    text: st => st.phase ? '请转身背对镜头，坐着可以转动椅子，头和双肩留在画面中' : '请摘下帽子、发箍，正对镜头，让整个头部和双肩都在画面中，坐着也可以',
+    check(st, now) {
+      const b = S.body;
+      if (!b || !has(b, 'left_shoulder', 0.5) || !has(b, 'right_shoulder', 0.5)) {
+        // 背对镜头时姿态模型常找不到人：转身后等几秒照常采集（服务端从人体轮廓估算肩线）
+        if (st.phase === 1 && now - (st.noBodySince ??= now) > 6000) return { ok: true };
+        return { hint: st.phase === 1 ? '请转身背对镜头，头和双肩留在画面中' : '请让头和双肩出现在画面中' };
+      }
+      st.noBodySince = null;
+      const sw = dist(b.joints.left_shoulder, b.joints.right_shoulder), shY = (b.joints.left_shoulder.y + b.joints.right_shoulder.y) / 2;
+      st.metrics['肩宽占画面'] = r2(sw / W);
+      if (sw < 0.22 * W) return { hint: '请再靠近镜头一些' };
+      if (sw > 0.85 * W || shY > 0.95 * H) return { hint: '请离镜头远一点，让双肩完整入框' };
+      // 头顶大约在肩线上方 0.9 个肩宽：出了画面就量不了发长
+      if (shY - 0.9 * sw < 0.01 * H) return { hint: '头顶出画了：请把摄像头调高一点，或身体往下坐一点' };
+      if (st.phase === 0) {
+        if (!has(b, 'nose', 0.5)) return { hint: '请正对镜头' };
+        const turn = (b.joints.nose.x - (b.joints.left_shoulder.x + b.joints.right_shoulder.x) / 2) / sw;
+        st.metrics['转头'] = r2(turn);
+        if (Math.abs(turn) > 0.25) return { hint: '请正对镜头，不要转头' };
+        return { ok: true };
+      }
+      // 背面：看不到眼睛、鼻子，或者"鼻子"位置的颜色和正面拍到的脸明显不同（关键点模型背面也常给出鼻子）
+      const facePts = ['nose', 'left_eye', 'right_eye'].filter(k => has(b, k, 0.6)).length;
+      const dE = st.faceLab && has(b, 'nose', 0) ? deltaE(toLab(meanColor(b.joints.nose.x, b.joints.nose.y, 0.04 * sw)), st.faceLab) : null;
+      st.metrics['面部可见点'] = facePts;
+      if (dE != null) st.metrics['与正面色差'] = Math.round(dE);
+      if (facePts >= 2 && !(dE > 18)) return { hint: '请转身背对镜头' };
+      return { ok: true };
+    },
+    onHold(st) {
+      if (st.phase === 0) {
+        const b = S.body, sw = dist(b.joints.left_shoulder, b.joints.right_shoulder);
+        st.faceLab = toLab(meanColor(b.joints.nose.x, b.joints.nose.y, 0.04 * sw));
+        captureView(st, 'head_front'); st.phase = 1; say(this.text(st), true); return { done: false };
+      }
+      captureView(st, 'head_back');
+      return { done: true };
+    },
+    // 超时也留下当前画面交服务端和人工（背面时姿态模型常找不到人）
+    onTimeout(st) { captureView(st, st.phase ? 'head_back' : 'head_front'); return 'review'; },
+  },
   // 双臂近景：小臂横放在胸前，先手背和小臂外侧朝镜头，再翻转为掌心和小臂内侧；用前臂长度估算纹身大小
   arms_close: {
     title: '双臂近景（外侧 → 内侧）', needs: ['pose', 'hands'],
@@ -889,12 +935,15 @@ function nextRound(step, st, now) {
   return st.failed ? { done: true, status: 'review', note: `${st.failed} 轮未在时限内完成，疑似回放或配合不足` } : { done: true };
 }
 
-// 检测范围：全部 / 只测身体（需要姿态、不需要手部模型的步骤）/ 只测手部；分模块测试时不用每次走完全流程
-const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands'), hands: s => s.needs.includes('hands') && !s.needs.includes('pose') };
+// 检测范围：全部 / 只测身体（需要姿态、不需要手部模型的步骤）/ 只测手部 / 只测头发；分模块测试时不用每次走完全流程
+const SCOPE_CN = { body: '只测身体', hands: '只测手部', hair: '只测头发' }, GENDER_CN = { male: '男', female: '女' };
+const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands') && !s.scope, hands: s => s.needs.includes('hands') && !s.needs.includes('pose'), hair: s => s.scope === 'hair' };
 // 范围内的检测项：有视角属于这一类（手部视角 / 身体视角）的检测项；协调性两类都有
 function scopeChecks(scope) {
   if (!scope || scope === 'all') return null;
-  return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (d.views || []).some(v => (VIEWS[v]?.kind === 'hand') === (scope === 'hands'))).map(([c]) => c);
+  if (scope === 'hair') return ['hair'];
+  const kind = scope === 'hands' ? 'hand' : 'body';
+  return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (d.views || []).some(v => VIEWS[v]?.kind === kind)).map(([c]) => c);
 }
 
 function makeSteps(job, scope = 'all') {
@@ -1182,7 +1231,7 @@ async function endRun() {
 function sessionRecord() {
   const rows = requirementRows(), v = readValidation();
   return {
-    session_id: S.sessionId, at: S.startedAt, job: { id: S.job.id, name: S.job.name }, strictness: S.strictness, scope: S.scope || 'all',
+    session_id: S.sessionId, at: S.startedAt, job: { id: S.job.id, name: S.job.name }, strictness: S.strictness, scope: S.scope || 'all', gender: S.gender,
     duration_ms: S.durationMs, retakes: S.retakes || 0,
     client: { ua: navigator.userAgent.slice(0, 200), video: { w: W, h: H }, fps: perfSummary().fps, delegate },
     config: { server_pipeline: serverJudgeOn() ? VLM.server_judge.pipeline : null, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null, thresholds_version: TH.version, prompt_version: WEB.prompt_version, fast: FAST },
@@ -1363,7 +1412,7 @@ function renderReport() {
 
   el.innerHTML = `
   <h2>检测报告</h2>
-  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)}${S.scope && S.scope !== 'all' ? ` · 检测范围：${S.scope === 'body' ? '只测身体' : '只测手部'}` : ''} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
+  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)}${S.scope && S.scope !== 'all' ? ` · 检测范围：${SCOPE_CN[S.scope] || S.scope}` : ''} · 性别（招聘方填写）：${GENDER_CN[S.gender] || '未填写'} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
   <p>能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
   ${arb.error ? `<p class="s-fail">${esc(arb.error)}</p>` : ''}
   <h3>岗位要求核对</h3>
@@ -1520,7 +1569,8 @@ async function init() {
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
   if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
-  if (['all', 'body', 'hands'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
+  if (['all', 'body', 'hands', 'hair'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
+  if (['male', 'female'].includes(Q.get('gender'))) $('#gender').value = Q.get('gender');
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';
     $('#vlmStatus').className = 'tag ' + (VLM.vlm ? 'ok' : '');
@@ -1557,6 +1607,7 @@ async function init() {
 async function start() {
   S.job = JOBS[$('#job').value];
   S.scope = $('#scope').value;
+  S.gender = $('#gender').value || null;     // 招聘方填写，只用于发长规则；系统不从图像判断性别
   S.steps = makeSteps(S.job, S.scope);
   $('#stepList').innerHTML = S.steps.map(s => `<li>${esc(s.title)}</li>`).join('');
   if (!(await openCamera())) return;

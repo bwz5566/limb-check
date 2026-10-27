@@ -117,6 +117,21 @@ const GUIDES = {
       + curve(left ? 'M84 14 Q60 2 36 14' : 'M36 14 Q60 2 84 14') + sideLabels(130);
     return { key: left ? 'l' : 'r', svg: svg(s, '0 -4 120 140'), caption: left ? '抬下巴，头转向左侧，露出右侧脖子' : '头转向右侧，露出左侧脖子' };
   },
+  hair: st => {
+    // 头肩近景：正面看发色和发尾位置，背面看扎起的长发和后脑挑染；头发用橙色标出，虚线框表示画面
+    const back = !!st.phase;
+    const frame = `<rect x="4" y="2" width="112" height="124" rx="6" fill="none" stroke="${DIM}" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    const body = `<path d="M10 124 Q20 96 46 92 L74 92 Q100 96 110 124" fill="none" stroke="${BODY}" stroke-width="3"/>`
+      + `<rect x="51" y="70" width="18" height="22" fill="none" stroke="${BODY}" stroke-width="3"/>`;
+    const head = back
+      ? `<ellipse cx="60" cy="48" rx="21" ry="25" fill="${OR}" opacity=".75" class="g-pulse"/><ellipse cx="60" cy="48" rx="21" ry="25" fill="none" stroke="${BODY}" stroke-width="3"/>`
+        + `<path d="M48 70 Q60 80 72 70" fill="none" stroke="${OR}" stroke-width="3"/>` + curve('M22 30 Q60 -6 98 30') + curve('M98 30 Q60 -6 22 30', true)
+      : `<ellipse cx="60" cy="48" rx="20" ry="24" fill="none" stroke="${BODY}" stroke-width="3"/>`
+        + `<path d="M40 48 Q37 20 60 20 Q83 20 80 48 Q76 31 60 31 Q44 31 40 48 Z" fill="${OR}" opacity=".75" class="g-pulse"/>`
+        + `<circle cx="53" cy="50" r="1.6" fill="${BODY}"/><circle cx="67" cy="50" r="1.6" fill="${BODY}"/>`;
+    return { key: back ? 'back' : 'front', svg: svg(frame + body + head, '0 -2 120 132'),
+      caption: back ? '转身背对镜头，头和双肩留在画面里' : '正对镜头，头顶到双肩都在画面里（坐着也可以）' };
+  },
   arms_close: st => ({
     key: st.phase ? 'in' : 'out',
     svg: svg(person({ le: [34, 64], lw: [56, 62], re: [86, 64], rw: [64, 62] }, ['larm', 'rarm']) + text(4, 104, '左', 12, DIM, 'start') + text(116, 104, '右', 12, DIM, 'end'), '-6 0 132 108'),

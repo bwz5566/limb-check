@@ -51,8 +51,7 @@ nails:
   delta_e: 22                # 指甲与同一根手指中节皮肤的 Lab 色差，超过记"疑似美甲"（只测伸直的手指）
 
 hair:
-  dyed_chroma_min: 18        # 头发像素平均彩度高于此值记"疑似染色"（粗略启发式，只作基线）
-  min_pixels: 400            # 头发像素少于此值视为无法判断
+  policy: configs/policies/hair.yaml   # 发色、发长的颜色范围和判定阈值都在录用标准文件里
 
 # 肢体协调性：分析动作步骤里记录的关键点序列（limbcheck/motion.py）。角度单位度，长度以大腿 / 腿长 / 躯干长 / 肩宽为单位。
 # 均为建议初值，需要用真人样本（含动作不协调、活动受限者）校准。
@@ -79,3 +78,4 @@ arbitration:
   per_check:                 # 按检测项覆盖上面的值
     tattoo: {strategy: policy}               # 按录用标准（configs/policies/marks.yaml）逐处判定
     scar: {strategy: policy, high_conf: 0.9} # 疤痕大模型误报多，要求更高置信度才自动通过
+    hair: {strategy: policy}                 # 按发色、发长标准（configs/policies/hair.yaml）判定

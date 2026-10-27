@@ -63,8 +63,8 @@ def test_arbitrate_session_modes(server):
     assert f["shadow_first_attempt"] == "review"                       # 双方置信度都高，首次也不要求重做
     t = out["by_view"]["stand"]["tattoo"]
     assert t["mode"] == "judge" and t["decision"] == "pass"            # 纹身按录用标准判定（有书面依据）
-    hair = CheckResult("hair", "L2:x", True, 0.9, ["head"]).to_dict()
-    h = server.arbitrate_session("precision", [{"view": "stand", "l2": {"hair": hair}}])["by_view"]["stand"]["hair"]
+    nails = CheckResult("nails", "L2:x", True, 0.9, ["right_hand"]).to_dict()
+    h = server.arbitrate_session("line", [{"view": "backs", "l2": {"nails": nails}}])["by_view"]["backs"]["nails"]
     assert h["mode"] == "record_only" and h["decision"] == "not_assessed" and h["shadow"] == "fail_suggested"
     assert out["by_check"]["fingers"]["decision"] == "review"
     assert out["overall"] == "review"                                  # 只汇总 judge 模式的项目
@@ -224,3 +224,8 @@ def test_session_scope_skips_out_of_scope_required_views(server):
     assert full["by_check"]["fingers"]["decision"] == "review"           # 全流程：没拍手 → 手部需复核
     body = server.arbitrate_session("line", frames, checks=["limbs", "tattoo", "scar", "hair", "coordination"])
     assert "fingers" not in body["by_check"] and body["overall"] == "pass"
+
+
+def test_subject_meta_only_accepts_entered_gender(server):
+    assert server.subject_meta({"gender": "male"}) == {"gender": "male"}
+    assert server.subject_meta({"gender": "unknown", "x": 1}) == {} and server.subject_meta(None) == {}

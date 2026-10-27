@@ -43,18 +43,18 @@ def test_profile_modes_and_limbs(thresholds):
 
 
 def test_plugin_l1_for_new_check(thresholds):
-    @registry.register("l1", "hair.fake_test", check="hair")
-    def fake_hair(ctx):
-        return CheckResult("hair", "L1:fake", True, 0.9, ["head"])
+    @registry.register("l1", "nails.fake_test", check="nails")
+    def fake_nails(ctx):
+        return CheckResult("nails", "L1:fake", True, 0.9, ["right_hand"])
 
     @registry.register("l1", "tattoo.fake_test", check="tattoo")
     def fake_tattoo(ctx):
         return CheckResult("tattoo", "L1:fake", True, 0.9, ["left_forearm"])
 
-    prof = load_job_profiles()["precision"]
-    p = Pipeline(thresholds, profile=prof, l1=["hair.fake_test", "tattoo.fake_test"])
-    res = p.run(np.zeros((100, 100, 3), np.uint8), "stand")["results"]
-    h = res["hair"]
+    prof = load_job_profiles()["line"]
+    p = Pipeline(thresholds, profile=prof, l1=["nails.fake_test", "tattoo.fake_test"])
+    res = p.run(np.zeros((100, 100, 3), np.uint8), "backs")["results"]
+    h = res["nails"]      # 产线岗位美甲只记录
     assert h["decision"] == "not_assessed" and h["shadow"] == "fail_suggested" and h["mode"] == "record_only"
     t = res["tattoo"]      # 纹身已有书面依据（录用标准）→ judge；没有逐处标准判定信息时按默认仲裁
     assert t["decision"] == "fail_suggested" and t["mode"] == "judge"

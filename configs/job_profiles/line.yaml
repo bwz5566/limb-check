@@ -5,7 +5,7 @@ requirements:
   - 双手能完成抓握
   - 上肢活动正常
 strictness: standard        # 筛选严格度 strict / standard / lenient（configs/strictness.yaml），可按场次临时切换
-steps: [env, stand, back, arms, cross_touch, neck, arms_close, palms, backs, flex, challenge]
+steps: [env, stand, back, arms, cross_touch, neck, hair, arms_close, palms, backs, flex, challenge]
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
   coordination: {enabled: true, mode: judge}   # 动作序列分析（configs/thresholds.yaml 的 motion 段）；只有关键点一路，发现问题只建议人工确认
@@ -13,7 +13,8 @@ checks:
   nails:    {enabled: true, mode: record_only}
   tattoo:   {enabled: true, mode: judge}         # 按录用标准判定（书面依据见 basis）
   scar:     {enabled: true, mode: judge, params: {fine_work: false}}
-  hair:     {enabled: true, mode: record_only}
+  hair:     {enabled: true, mode: judge}         # 发色、发长按录用标准判定（configs/policies/hair.yaml）；男生长发规则需招聘方填写性别
   liveness: {enabled: true, mode: judge}
 basis:
   - {checks: [tattoo, scar], doc: "纹身 / 疤痕录用标准（招聘方提供，2026-10）", clause: "configs/policies/marks.yaml"}
+  - {checks: [hair], doc: "发色 / 发长要求（招聘方提供，2026-10：红紫绿黄等过曝光色不录用，棕褐、黑色正常；男生不留长发）", clause: "configs/policies/hair.yaml"}

@@ -1,0 +1,47 @@
+# 发色 / 发长录用标准（招聘方 2026-10：红、紫、绿、黄等过曝光色拦截，棕褐、黑色系正常；男生长发），由 limbcheck/appearance.py 执行。
+# 条件还在讨论，改标准只改这里：改完运行 `limbcheck export-web-config`，再跑 pytest。
+# 动作（action）：pass 符合标准；review 需人工核验；block 不符合 → 系统给"疑似问题·待人工确认"，最终结论由人工确认。
+# 颜色阈值都是建议初值（真人照片 + 改色照片验证），需要用真实染发样本校准。
+version: 1
+
+# 颜色分类：每个头发像素换算到 Lab 后按 亮度 L（0–100）、彩度 C、色相角 h（度，0 = 红、90 = 黄、180 = 绿、270 = 蓝）分类，
+# 按顺序匹配，第一个满足的生效。h 区间可以跨 0 度（如 [305, 5]）。参考：红 35、酒红 20、橙 59、金黄 87、绿 143、青 214、宝蓝 290、纯蓝 306、紫 328、粉 355。
+# 先做白平衡：用面部肤色校正偏色（摄像头偏蓝 / 偏紫时，黑发会被看成紫色），见 white_balance。
+colors:
+  black:      {name: 黑色,      action: pass,  L: [0, 22]}
+  dark:       {name: 黑 / 深色, action: pass, C: [0, 14], L: [0, 50]}   # 黑发受光反光后变亮但仍无彩色
+  gray_white: {name: 灰白,      action: pass,  C: [0, 10]}
+  brown:      {name: 棕色 / 棕褐, action: pass,  C: [0, 30], h: [20, 100], L: [0, 55]}
+  blonde:     {name: 金色 / 黄色, action: block, h: [55, 110], C: [22, 200], L: [52, 100]}
+  red:        {name: 红色 / 酒红 / 橙红, action: block, h: [5, 65], C: [24, 200]}
+  pink_purple: {name: 紫色 / 粉色, action: block, h: [305, 5], C: [20, 200]}
+  green:      {name: 绿色,      action: block, h: [100, 200], C: [16, 200]}
+  blue:       {name: 蓝色,      action: block, h: [200, 305], C: [18, 200]}
+  other:      {name: 其他颜色,   action: review}
+
+white_balance:
+  enabled: true
+  skin_hue: 48          # 正常肤色的色相角（不同肤色基本都在 40–60 度）：把参考皮肤校正到这个色相，头发按同样的 RGB 增益校正
+  max_gain: 1.35        # 每个颜色通道的校正倍数上限，避免把真染的颜色"校正"掉
+  min_skin_pixels: 300  # 参考皮肤（正面用面部，背面用脖子）像素少于此值不校正
+
+# 判定：头发像素里"拦截颜色"（action 为 block 的颜色）的占比
+dyed:
+  whole_min: 0.35       # ≥ 35% → 整体染色，按占比最多的拦截颜色给动作
+  highlights_min: 0.08  # 8%–35% → 挑染 / 局部染色
+  highlights_action: block
+  borderline: 0.4       # 占比落在阈值 × (1 ± 0.4) 内 → 需人工核验（光线、分割误差）
+  min_pixels: 400       # 头发像素少于此值 → 无法判断
+  unknown_review: 0.35  # 无法归类的颜色（other）占比 ≥ 此值 → 需人工核验
+  max_confidence: 0.8   # 发色只有分割 + 颜色统计一路，置信度上限；低于仲裁的 auto_fail_conf（0.85）→ 拦截项一律交人工确认，用真实染发样本校准后再调高
+
+# 发长：发尾（头发最低处）在"头顶 → 肩线"之间的位置。ratio = (发尾 y − 头顶 y) / (肩线 y − 头顶 y)，肩线取两肩关节的平均高度。
+# 头顶取头发最高处；头顶出了画面时按眼睛位置估算。正面、背面各量一次（扎起的长发正面看不出来）。
+# 约：短发 < 0.75（发尾在耳下以上），及领 0.75–0.95，及肩 0.95–1.2，过肩 > 1.2（建议初值，需校准）
+length:
+  levels: {short: 0.75, collar: 0.95, shoulder: 1.2}
+  names: {short: 短发, collar: 及领, shoulder: 及肩, long: 过肩}
+  # 性别由招聘方在检测前填写，系统不从图像推断；未填写时只记录发长
+  # 常见的更严标准"男生后不过领"：把 max_ratio 改成 0.8 左右
+  rules:
+    male: {max_ratio: 0.95, action: block, borderline: 0.1, text: 男生长发（发尾及肩或更长）}

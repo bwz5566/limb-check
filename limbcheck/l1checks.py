@@ -136,7 +136,9 @@ def limbs_contour(ctx: L1Context) -> CheckResult | None:
 
 @register("l1", "hair.color", check="hair", needs="segmenter")
 def hair_color(ctx: L1Context) -> CheckResult | None:
-    """头发分割 + Lab 彩度（粗略基线，只作记录和对比）。"""
+    """发色（头发分割 + 白平衡 + 按颜色归类）和发长（发尾相对肩线），标准见 configs/policies/hair.yaml。
+    男生长发规则用 ctx.meta["gender"]（招聘方填写）。"""
     if ctx.segmenter is None:
         return None
-    return ctx._timed("segment", lambda: hair_result(ctx.img, ctx.segmenter, ctx.th["hair"]))
+    body = ctx.bodies[0] if ctx.bodies else None
+    return ctx._timed("segment", lambda: hair_result(ctx.img, ctx.segmenter, body, ctx.meta))

@@ -12,7 +12,7 @@ def test_profiles_load_and_appearance_needs_basis():
         covered = {c for b in p.get("basis") or [] for c in b.get("checks") or []}
         for c in ("tattoo", "scar", "hair"):
             assert check_mode(p, c) in ("record_only", "off") or c in covered
-        assert check_mode(p, "hair") in ("record_only", "off")     # 发色尚无书面依据
+        assert check_mode(p, "hair") == "judge" and "hair" in covered     # 发色 / 发长标准已由招聘方提供
         assert set(p["checks"]) == set(CHECKS)
 
 

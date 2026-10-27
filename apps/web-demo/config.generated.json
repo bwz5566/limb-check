@@ -85,10 +85,10 @@
       "appearance": true
     },
     "hair": {
-      "name": "发色",
+      "name": "头发（发色 / 发长）",
       "views": [
-        "stand",
-        "back"
+        "head_front",
+        "head_back"
       ],
       "basis_required": true,
       "appearance": true
@@ -128,6 +128,14 @@
     "arms_in": {
       "name": "双臂内侧近景",
       "kind": "body"
+    },
+    "head_front": {
+      "name": "头部正面近景",
+      "kind": "head"
+    },
+    "head_back": {
+      "name": "头部背面近景",
+      "kind": "head"
     },
     "palms": {
       "name": "双手掌心",
@@ -205,8 +213,7 @@
       "delta_e": 22
     },
     "hair": {
-      "dyed_chroma_min": 18,
-      "min_pixels": 400
+      "policy": "configs/policies/hair.yaml"
     },
     "motion": {
       "min_frames": 8,
@@ -264,6 +271,9 @@
         "scar": {
           "strategy": "policy",
           "high_conf": 0.9
+        },
+        "hair": {
+          "strategy": "policy"
         }
       }
     }
@@ -286,6 +296,7 @@
         "arms",
         "cross_touch",
         "neck",
+        "hair",
         "arms_close",
         "palms",
         "backs",
@@ -333,7 +344,7 @@
         },
         "hair": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "liveness": {
@@ -350,6 +361,13 @@
           ],
           "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
           "clause": "configs/policies/marks.yaml"
+        },
+        {
+          "checks": [
+            "hair"
+          ],
+          "doc": "发色 / 发长要求（招聘方提供，2026-10：红紫绿黄等过曝光色不录用，棕褐、黑色正常；男生不留长发）",
+          "clause": "configs/policies/hair.yaml"
         }
       ]
     },
@@ -369,6 +387,7 @@
         "arms",
         "cross_touch",
         "neck",
+        "hair",
         "arms_close",
         "palms",
         "backs",
@@ -415,7 +434,7 @@
         },
         "hair": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "liveness": {
@@ -432,6 +451,13 @@
           ],
           "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
           "clause": "configs/policies/marks.yaml"
+        },
+        {
+          "checks": [
+            "hair"
+          ],
+          "doc": "发色 / 发长要求（招聘方提供，2026-10：红紫绿黄等过曝光色不录用，棕褐、黑色正常；男生不留长发）",
+          "clause": "configs/policies/hair.yaml"
         }
       ]
     },
@@ -452,6 +478,7 @@
         "arms",
         "cross_touch",
         "neck",
+        "hair",
         "arms_close",
         "legs",
         "march",
@@ -501,7 +528,7 @@
         },
         "hair": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "liveness": {
@@ -518,6 +545,13 @@
           ],
           "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
           "clause": "configs/policies/marks.yaml"
+        },
+        {
+          "checks": [
+            "hair"
+          ],
+          "doc": "发色 / 发长要求（招聘方提供，2026-10：红紫绿黄等过曝光色不录用，棕褐、黑色正常；男生不留长发）",
+          "clause": "configs/policies/hair.yaml"
         }
       ]
     },
@@ -538,6 +572,7 @@
         "arms",
         "cross_touch",
         "neck",
+        "hair",
         "arms_close",
         "palms",
         "backs",
@@ -584,7 +619,7 @@
         },
         "hair": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "liveness": {
@@ -601,6 +636,13 @@
           ],
           "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
           "clause": "configs/policies/marks.yaml"
+        },
+        {
+          "checks": [
+            "hair"
+          ],
+          "doc": "发色 / 发长要求（招聘方提供，2026-10：红紫绿黄等过曝光色不录用，棕褐、黑色正常；男生不留长发）",
+          "clause": "configs/policies/hair.yaml"
         }
       ]
     }
@@ -759,6 +801,159 @@
       "stain": {
         "action": "clean",
         "message": "检测到{部位}可能有污渍或笔迹，请清洁后重新拍摄该部位"
+      }
+    },
+    "hair": {
+      "version": 1,
+      "colors": {
+        "black": {
+          "name": "黑色",
+          "action": "pass",
+          "L": [
+            0,
+            22
+          ]
+        },
+        "dark": {
+          "name": "黑 / 深色",
+          "action": "pass",
+          "C": [
+            0,
+            14
+          ],
+          "L": [
+            0,
+            50
+          ]
+        },
+        "gray_white": {
+          "name": "灰白",
+          "action": "pass",
+          "C": [
+            0,
+            10
+          ]
+        },
+        "brown": {
+          "name": "棕色 / 棕褐",
+          "action": "pass",
+          "C": [
+            0,
+            30
+          ],
+          "h": [
+            20,
+            100
+          ],
+          "L": [
+            0,
+            55
+          ]
+        },
+        "blonde": {
+          "name": "金色 / 黄色",
+          "action": "block",
+          "h": [
+            55,
+            110
+          ],
+          "C": [
+            22,
+            200
+          ],
+          "L": [
+            52,
+            100
+          ]
+        },
+        "red": {
+          "name": "红色 / 酒红 / 橙红",
+          "action": "block",
+          "h": [
+            5,
+            65
+          ],
+          "C": [
+            24,
+            200
+          ]
+        },
+        "pink_purple": {
+          "name": "紫色 / 粉色",
+          "action": "block",
+          "h": [
+            305,
+            5
+          ],
+          "C": [
+            20,
+            200
+          ]
+        },
+        "green": {
+          "name": "绿色",
+          "action": "block",
+          "h": [
+            100,
+            200
+          ],
+          "C": [
+            16,
+            200
+          ]
+        },
+        "blue": {
+          "name": "蓝色",
+          "action": "block",
+          "h": [
+            200,
+            305
+          ],
+          "C": [
+            18,
+            200
+          ]
+        },
+        "other": {
+          "name": "其他颜色",
+          "action": "review"
+        }
+      },
+      "white_balance": {
+        "enabled": true,
+        "skin_hue": 48,
+        "max_gain": 1.35,
+        "min_skin_pixels": 300
+      },
+      "dyed": {
+        "whole_min": 0.35,
+        "highlights_min": 0.08,
+        "highlights_action": "block",
+        "borderline": 0.4,
+        "min_pixels": 400,
+        "unknown_review": 0.35,
+        "max_confidence": 0.8
+      },
+      "length": {
+        "levels": {
+          "short": 0.75,
+          "collar": 0.95,
+          "shoulder": 1.2
+        },
+        "names": {
+          "short": "短发",
+          "collar": "及领",
+          "shoulder": "及肩",
+          "long": "过肩"
+        },
+        "rules": {
+          "male": {
+            "max_ratio": 0.95,
+            "action": "block",
+            "borderline": 0.1,
+            "text": "男生长发（发尾及肩或更长）"
+          }
+        }
       }
     }
   },

@@ -150,7 +150,8 @@ class ServerJudge:
         return {"enabled": self.base is not None, "pipeline": self.base.name if self.base else None,
                 "error": self.error if self.enabled else "LIMBCHECK_PIPELINE=off"}
 
-    def analyze(self, view: str, image: str, job_id: str | None, strictness: str | None) -> dict:
+    def analyze(self, view: str, image: str, job_id: str | None, strictness: str | None, meta: dict | None = None) -> dict:
+        """meta：受检者信息，目前只有 gender（male / female，招聘方填写，用于男生长发规则）。"""
         from limbcheck.pipeline import Pipeline
 
         self.load()
@@ -163,11 +164,17 @@ class ServerJudge:
                      mirrored=b.mirrored, l1=b.l1_names, name=b._name, strictness=strictness_of(job, strictness))
         t0 = time.perf_counter()
         with self._lock:
-            r = p.run(img, view)
+            r = p.run(img, view, subject_meta(meta))
         l1 = {c: v["l1"] for c, v in r["results"].items() if v.get("l1")}
         return {"view": view, "pipeline": b.name, "l1": l1, "quality": r["quality"], "errors": r["errors"],
                 "latency_ms": {**r["latency_ms"], "total": round((time.perf_counter() - t0) * 1000, 1)},
                 "img_size": [int(img.shape[1]), int(img.shape[0])]}
+
+
+def subject_meta(meta: dict | None) -> dict:
+    """只取认识的受检者字段；性别只接受招聘方填写的 male / female，系统不从图像推断。"""
+    g = (meta or {}).get("gender")
+    return {"gender": g} if g in ("male", "female") else {}
 
 
 def decode_image(data: str):
@@ -465,7 +472,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not req.get("image"):
                 return self._json(400, {"error": "缺少 image"})
             try:
-                return self._json(200, JUDGE.analyze(view, req["image"], req.get("job"), req.get("strictness")))
+                return self._json(200, JUDGE.analyze(view, req["image"], req.get("job"), req.get("strictness"), req.get("meta")))
             except ValueError as e:
                 return self._json(400, {"error": str(e)})
             except RuntimeError as e:
