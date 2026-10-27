@@ -30,7 +30,7 @@ const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', r
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', left_foot: '左脚', right_foot: '右脚', left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿', arms: '双臂', legs: '双腿', whole_body: '全身', hands: '双手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '指尖不在轮廓内', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定' };
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
@@ -195,6 +195,107 @@ function nailsResult(hands, source = SRC_NAILS) {
   return Result('nails', source, false, r3(Math.min(...confs)), [], true, findings);
 }
 
+// ---------- 手指像素证据 ----------
+// 关键点模型在手指被遮挡、蜷起或缺失时仍会"脑补"出完整的手形，所以只认像素上确实看得到的手指：
+// 1) 每根手指的中节、末节采样点是不是皮肤；2) 张开时相邻两指之间是不是背景（有缝隙）；3) 掌面是不是皮肤。
+// 参照肤色取掌面和各指近节多点的中位数，Lab 色差（亮度权重 0.5）小于阈值算皮肤，与 limbcheck.adapters.contour 的 skin 后端一致。
+// 背景接近肤色时无法复核，结果标为"画质不足"并提示换背景。
+const PALM_IDS = [0, 1, 5, 9, 13, 17];
+const GAP_PAIRS = [['index', 'middle'], ['middle', 'ring'], ['ring', 'little']];
+const lerp = (a, b, t) => ({ x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+const median = a => { const v = [...a].sort((x, y) => x - y); return v.length ? v[Math.floor(v.length / 2)] : 0; };
+function roiReader(lm, pad) {
+  const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - pad)), y0 = Math.max(0, Math.floor(Math.min(...ys) - pad));
+  const x1 = Math.min(W, Math.ceil(Math.max(...xs) + pad)), y1 = Math.min(H, Math.ceil(Math.max(...ys) + pad));
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  const w = x1 - x0, h = y1 - y0, d = gctx.getImageData(x0, y0, w, h).data;
+  // 以 (cx, cy) 为中心、半径 r 的小块：每个像素交给 fn（参数为 RGB），返回 fn 为真的像素比例；完全在范围外返回 null
+  return (cx, cy, r, fn) => {
+    const ax = Math.max(0, Math.round(cx - r) - x0), ay = Math.max(0, Math.round(cy - r) - y0);
+    const bx = Math.min(w - 1, Math.round(cx + r) - x0), by = Math.min(h - 1, Math.round(cy + r) - y0);
+    if (bx < ax || by < ay) return null;
+    let k = 0, n = 0;
+    for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) { const i = (y * w + x) * 4; k += fn(d[i], d[i + 1], d[i + 2]) ? 1 : 0; n++; }
+    return k / n;
+  };
+}
+function handEvidence(h) {
+  const lm = h.lm, palm = palmLen(lm), th = TH.contour || {};
+  if (palm < 10) return null;
+  const read = roiReader(lm, 0.5 * palm); if (!read) return null;
+  const r = Math.max(2, 0.03 * palm), thr = th.skin_delta_e ?? 20;
+  const center = PALM_IDS.reduce((c, i) => ({ x: c.x + lm[i].x / PALM_IDS.length, y: c.y + lm[i].y / PALM_IDS.length }), { x: 0, y: 0 });
+  const refPts = [center, ...PALM_IDS.map(i => lerp(center, lm[i], 0.5)), ...FINGERS.map(f => lerp(lm[FINGER_IDS[f][0]], lm[FINGER_IDS[f][1]], 0.5))];
+  const labs = refPts.map(p => { let c = [0, 0, 0], n = 0; const f = read(p.x, p.y, r, (R, G, B) => { c[0] += R; c[1] += G; c[2] += B; n++; return true; }); return f === null || !n ? null : toLab(c.map(v => v / n)); }).filter(Boolean);
+  if (labs.length < 4) return null;
+  const ref = [0, 1, 2].map(k => median(labs.map(l => l[k])));
+  const isSkinPx = (R, G, B) => { const l = toLab([R, G, B]); return Math.hypot(0.5 * (l[0] - ref[0]), l[1] - ref[1], l[2] - ref[2]) < thr; };
+  // 一小块里有 ≥ 25% 的像素像皮肤就算"皮肤"（关键点常落在手指边缘，与离线掩码 + 膨胀的效果相当）；minFrac 可调
+  const skin = (p, rr = r, minFrac = 0.25) => { const f = read(p.x, p.y, rr, isSkinPx); return f === null ? null : f >= minFrac; };
+  const cover = pts => { const v = pts.map(p => skin(p)).filter(x => x !== null); return v.length ? v.filter(Boolean).length / v.length : 0; };
+  const seg = (a, b) => cover([0.2, 0.45, 0.7].map(t => lerp(a, b, t)));
+  const fingers = {};
+  for (const f of FINGERS) { const ids = FINGER_IDS[f]; fingers[f] = { distal: r2(seg(lm[ids[2]], lm[ids[3]])), middle: r2(seg(lm[ids[1]], lm[ids[2]])) }; }
+  const gaps = {};
+  for (const [a, b] of GAP_PAIRS) {
+    if (!fingerExtended(lm, a) || !fingerExtended(lm, b)) { gaps[`${a}-${b}`] = null; continue; }   // 蜷起的手指压在掌面上，中间本来就是皮肤
+    const pa = lerp(lm[FINGER_IDS[a][2]], lm[FINGER_IDS[a][3]], 0.5), pb = lerp(lm[FINGER_IDS[b][2]], lm[FINGER_IDS[b][3]], 0.5);
+    if (dist(pa, pb) < (th.gap_min_spread ?? 0.33) * palm) { gaps[`${a}-${b}`] = null; continue; }    // 两指没分开，不判断缝隙
+    const v = [0.35, 0.5, 0.65].map(t => skin(lerp(pa, pb, t), Math.max(1, 0.015 * palm), 0.5)).filter(x => x !== null);   // 任一点不是皮肤即有缝隙
+    gaps[`${a}-${b}`] = v.length ? !v.every(Boolean) : null;
+  }
+  const palmCov = cover([center, ...PALM_IDS.flatMap(i => [lerp(center, lm[i], 0.33), lerp(center, lm[i], 0.66)])]);
+  // 背景：四指指尖沿手指方向再外推 0.35 掌长，多数也"像皮肤"说明背景接近肤色，像素证据不可靠
+  const bg = FINGERS.filter(f => f !== 'thumb').map(f => { const a = lm[FINGER_IDS[f][2]], b = lm[FINGER_IDS[f][3]], L = dist(a, b) + 1e-6; return skin({ x: b.x + (b.x - a.x) / L * 0.35 * palm, y: b.y + (b.y - a.y) / L * 0.35 * palm }); }).filter(v => v !== null);
+  const bgSkin = bg.length ? bg.filter(Boolean).length / bg.length : 0;
+  return { fingers, gaps, palm: r2(palmCov), bg_skin: r2(bgSkin), reliable: bgSkin < 0.5 };
+}
+// 这根手指像素上看得到：中节、末节都有足够比例落在皮肤上
+const fingerSeen = (ev, f) => !ev || !ev.reliable || (ev.fingers[f].distal >= (TH.contour?.tip_on_mask_min ?? 0.5) && ev.fingers[f].middle >= (TH.contour?.tip_on_mask_min ?? 0.5));
+// 看不到的手指 + 张开却没有缝隙的手指（两指之间也是皮肤：被别的手 / 肤色物体挡住，或关键点画在了别处的皮肤上）
+function unseenFingers(ev) {
+  if (!ev || !ev.reliable) return [];
+  const out = new Set(FINGERS.filter(f => !fingerSeen(ev, f)));
+  for (const [a, b] of GAP_PAIRS) if (ev.gaps[`${a}-${b}`] === false) { out.add(a); out.add(b); }
+  return FINGERS.filter(f => out.has(f));
+}
+// 伸直且像素上看得到的手指数（张开、手势挑战用）
+const seenExtendedCount = (h, ev) => FINGERS.filter(f => fingerExtended(h.lm, f) && fingerSeen(ev, f)).length;
+function handOverlap(hands) {
+  if (hands.length < 2) return false;
+  const box = h => { const xs = h.lm.map(p => p.x), ys = h.lm.map(p => p.y); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  const [a, b] = hands.map(box);
+  const iw = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), ih = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  return iw > 0 && ih > 0 && iw * ih > 0.05 * Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
+}
+// 四指没分开时，被遮挡的手指可能"藏"在相邻手指上，像素上无法确认 → 不给"正常"，交人工
+const notSpread = ev => GAP_PAIRS.filter(([a, b]) => ev.gaps[`${a}-${b}`] === null);
+function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:skin-web') {
+  const findings = [], parts = [], covs = [];
+  let unreliable = false, closed = false;
+  for (const h of hands) {
+    const ev = handEvidence(h), side = h.side || 'unknown';
+    if (!ev) continue;
+    if (!ev.reliable) { unreliable = true; continue; }
+    if (ev.palm < (TH.contour?.palm_on_mask_min ?? 0.75)) { parts.push(`${side}_hand.palm`); findings.push(Finding('fingers', `${side}_hand.palm`, 'palm_off_mask', true, r3(0.5 + 0.5 * (1 - ev.palm)), source, ev.palm, `掌面只有 ${Math.round(ev.palm * 100)}% 是皮肤，疑似手掌 / 手背残缺或被遮挡`)); }
+    for (const f of FINGERS) {
+      const c = Math.min(ev.fingers[f].distal, ev.fingers[f].middle); covs.push(c);
+      if (!fingerSeen(ev, f)) { parts.push(`${side}_hand.${f}`); findings.push(Finding('fingers', `${side}_hand.${f}`, 'tip_off_mask', true, r3(0.5 + 0.5 * (1 - c)), source, ev.fingers[f], `${FINGER_CN[f]}只有 ${Math.round(c * 100)}% 落在皮肤上，疑似被遮挡、蜷起或缺失（关键点脑补）`)); }
+    }
+    for (const [a, b] of GAP_PAIRS) if (ev.gaps[`${a}-${b}`] === false) {
+      for (const f of [a, b]) if (!parts.includes(`${side}_hand.${f}`)) parts.push(`${side}_hand.${f}`);
+      findings.push(Finding('fingers', `${side}_hand.${a}`, 'no_gap', true, 0.6, source, `${a}-${b}`, `${FINGER_CN[a]}和${FINGER_CN[b]}之间看不到缝隙，疑似被遮挡（关键点脑补）`));
+    }
+    if (openHand && notSpread(ev).length) { closed = true; findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, notSpread(ev).map(p => p.join('-')), `${SIDE_CN[side] || '手'}手指没有分开，无法逐指确认`)); }
+  }
+  if (parts.length) return Result('fingers', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), [...new Set(parts)].sort(), true, findings);
+  if (unreliable) return Result('fingers', source, null, 0, [], false, findings, '背景与肤色太接近，无法用像素复核手指');
+  if (closed) return Result('fingers', source, null, 0, [], false, findings, '手指没有分开，无法逐指确认每根手指都在');
+  if (hands.length < expected || !covs.length) return Result('fingers', source, null, 0, [], false, findings, `只检测到 ${hands.length} 只手`);
+  return Result('fingers', source, false, r3(0.5 + 0.5 * Math.min(...covs)), [], true, findings);
+}
+
 // ---------- 身体 ----------
 const has = (b, k, minV) => b && b.joints[k] && b.vis[k] >= minV;
 const torso = b => (dist(b.joints.left_shoulder, b.joints.left_hip) + dist(b.joints.right_shoulder, b.joints.right_hip)) / 2;
@@ -353,7 +454,7 @@ function subjectBrightness() {
 function l1ForView(view) {
   const out = {}, checks = viewChecks(view), v = VIEWS[view];
   if (v.kind === 'hand') {
-    if (checks.includes('fingers')) out.fingers = fingersResult(S.hands, v.expected_hands || 2);
+    if (checks.includes('fingers')) out.fingers = mergeAny([fingersResult(S.hands, v.expected_hands || 2), fingersEvidenceResult(S.hands, v.expected_hands || 2, ['palms', 'backs'].includes(view))], 'L1:mediapipe-web+skin-web');
     if (checks.includes('nails')) { const r = nailsResult(S.hands); if (r) out.nails = r; }
   } else if (checks.includes('limbs')) {
     const p = paramsOf('limbs'), up = p.upper ?? true, low = (p.lower ?? true) && view === 'stand';
@@ -409,9 +510,21 @@ function poseGate() {
   if (S.poseCount > (TH.quality.max_persons ?? 1)) return '画面中只能有一个人';
   return null;
 }
+// 动作中确认肢体真的在画面里：人体分割掩码复核（每 10 帧读一次掩码），返回不在人体轮廓内的肢体。
+// 手臂藏到身后、被物体挡住时，姿态模型仍会画出完整的手臂关键点，只看关键点会误判为"动作完成"
+function limbsMissing(st, upper, lower) {
+  if (S.frame - (st.ctFrame ?? -99) >= 10) {
+    st.ctFrame = S.frame;
+    const r = limbsContourResult(poseMask(), S.body, upper, lower);
+    st.ctMissing = r?.positive ? r.parts : [];
+  }
+  return st.ctMissing || [];
+}
+const missingHint = miss => `${miss.map(k => LIMB_CN[k]).join('、')}看不清或被遮挡，请完整露出`;
 function handsGate(n = 2) {
   if (S.hands.length < n) return n === 2 ? '请走近镜头，把双手举到胸前' : '请把手举到镜头前';
   if (S.hands.some(h => palmLen(h.lm) < TH.quality.min_hand_size * H)) return '请再靠近镜头一些';
+  if (handOverlap(S.hands)) return '请把两只手分开，不要互相遮挡';
   return null;
 }
 // 缺指者无法"张开五指"：前 6 秒要求五指全部伸直，之后放宽到 3 指，避免卡住
@@ -428,13 +541,19 @@ function handPose(want) {
     text: () => want === 'palm' ? '请走近镜头，双手举到胸前，掌心朝向镜头，五指张开' : '把双手翻过来，手背朝向镜头，五指张开',
     check(st, now) {
       const g = handsGate(); if (g) return { hint: g };
+      // 只数像素上看得到的手指：被遮挡、蜷起的手指不算。前 6 秒要求五指都看得到，之后放宽（缺指者照常采集，结果交人工）
       let soft = '';
       for (const h of S.hands) {
-        const c = extendedCount(h.lm), name = SIDE_CN[h.side] || '手';
+        const ev = handEvidence(h), c = seenExtendedCount(h, ev), name = SIDE_CN[h.side] || '手';
         st.metrics[`${name}伸直手指`] = c;
         if (facing(h) !== want) return { hint: want === 'palm' ? `${name}请掌心朝向镜头` : `${name}请翻转为手背朝前` };
+        const strict = now - st.start < 6000;
+        if (ev && !ev.reliable) { if (strict) return { hint: '背景与肤色太接近，请站到深色或纯色背景前' }; soft = '背景与肤色太接近，结果将交人工复核'; continue; }
+        const hidden = unseenFingers(ev);
+        if (hidden.length) { const t = `${name}${hidden.map(f => FINGER_CN[f]).join('、')}看不清，请张开五指、不要遮挡`; if (strict) return { hint: t }; soft = t; }
+        else if (ev && notSpread(ev).length) { const t = `${name}请把五指尽量分开`; if (strict) return { hint: t }; soft = soft || t; }
         if (c < needOpen(st, now)) return { hint: `${name}请张开五指` };
-        if (c < 5) soft = `${name}请尽量张开五指`;
+        if (c < 5 && !soft) soft = `${name}请尽量张开五指`;
       }
       return { ok: true, hint: soft };
     },
@@ -458,13 +577,14 @@ const STEP_LIB = {
   },
   stand: {
     title: '正面站立', needs: ['pose'], text: () => '正面站直，双臂自然下垂',
-    check() {
+    check(st) {
       const g = poseGate(); if (g) return { hint: g };
       const b = S.body;
       if (!fullBodyVisible(b)) return { hint: '请后退，确保头到脚完整入框' };
       if (b.joints.left_wrist.y < b.joints.left_shoulder.y || b.joints.right_wrist.y < b.joints.right_shoulder.y) return { hint: '请把双臂放下' };
       // 腿弯着拍会被"关节弯折"规则记疑似：先提示站直，做不到的超时后照常采集、交人工
       if (['left', 'right'].some(s => angle(b.joints[`${s}_hip`], b.joints[`${s}_knee`], b.joints[`${s}_ankle`]) < (TH.pose.min_straight_angle ?? 120) + 20)) return { hint: '请站直，双腿伸直' };
+      const miss = limbsMissing(st, true, true); if (miss.length) return { hint: missingHint(miss) };
       return { ok: true };
     },
     onHold(st) {
@@ -506,6 +626,7 @@ const STEP_LIB = {
           if (ang < 140) return { hint: `${name}请伸直` };
         }
       }
+      const miss = limbsMissing(st, true, false); if (miss.length) return { hint: missingHint(miss) };
       return { ok: true };
     },
     onHold(st) {
@@ -524,7 +645,9 @@ const STEP_LIB = {
       const thigh = S.baseline ? (st.phase ? S.baseline.thighR : S.baseline.thighL) : dist(b.joints[h], b.joints[k]);
       const lift = (b.joints[k].y - b.joints[h].y) / thigh; st.metrics[`${name}抬升比`] = r2(1 - lift);
       if (Math.min(b.vis[h], b.vis[k]) < TH.pose.min_visibility) return { hint: `${name}未完整入镜` };
-      return lift > 0.5 ? { hint: `${name}膝盖再抬高一些` } : { ok: true };
+      if (lift > 0.5) return { hint: `${name}膝盖再抬高一些` };
+      const leg = st.phase ? 'right_leg' : 'left_leg', miss = limbsMissing(st, false, true);
+      return miss.includes(leg) ? { hint: missingHint([leg]) } : { ok: true };
     },
     onHold(st) {
       st.evidence.push({ label: st.phase ? '右腿抬起' : '左腿抬起', img: snapshot(true, null, 480, 0.8) });
@@ -646,7 +769,7 @@ const STEP_LIB = {
     check(st, now) {
       const g = handsGate(); if (g) return { hint: g };
       for (const h of S.hands) {
-        const c = extendedCount(h.lm), name = SIDE_CN[h.side] || '手'; st.metrics[`${name}伸直手指`] = c;
+        const c = st.phase === 0 ? extendedCount(h.lm) : seenExtendedCount(h, handEvidence(h)), name = SIDE_CN[h.side] || '手'; st.metrics[`${name}伸直手指`] = c;
         if (st.phase === 0 && c > 1) return { hint: `${name}请握紧拳头` };
         if (st.phase === 1 && c < needOpen(st, now)) return { hint: `${name}请张开五指` };
       }
@@ -659,20 +782,32 @@ const STEP_LIB = {
       return { done: true };
     },
   },
+  // 对捏：只移动关键点就能"碰上"（手指蜷在拳里时关键点照样会画出来），所以每次接触还要满足：
+  // 目标手指和拇指像素上看得到、其余三指中至少两根伸直且看得到（防握拳作弊）；每次接触留一张证据小图
   pinch: {
     title: '拇指依次对捏', needs: ['hands'], timeoutFactor: 1.5,
-    text: () => '双手同时，用拇指依次碰食指、中指、无名指、小指的指尖',
+    text: () => '双手同时，用拇指依次碰食指、中指、无名指、小指的指尖，其余手指保持张开',
     check(st) {
       const g = handsGate(); if (g) return { hint: g };
       st.prog ||= { right: 0, left: 0 };
+      let warn = '';
       for (const h of S.hands) {
         const k = st.prog[h.side]; if (k == null || k >= 4) continue;
-        if (dist(h.lm[4], h.lm[FINGER_IDS[FINGERS[k + 1]][3]]) < TH.fingers.pinch_ratio * palmLen(h.lm)) st.prog[h.side]++;
+        const target = FINGERS[k + 1];
+        if (dist(h.lm[4], h.lm[FINGER_IDS[target][3]]) >= TH.fingers.pinch_ratio * palmLen(h.lm)) continue;
+        const ev = handEvidence(h);
+        const others = FINGERS.filter(f => f !== 'thumb' && f !== target);
+        const open = others.filter(f => fingerExtended(h.lm, f) && fingerSeen(ev, f)).length;
+        const seen = !ev || !ev.reliable || (ev.fingers[target].middle >= (TH.contour?.tip_on_mask_min ?? 0.5) && ev.fingers.thumb.distal >= (TH.contour?.tip_on_mask_min ?? 0.5));
+        if (!seen) { warn = `${SIDE_CN[h.side]}${FINGER_CN[target]}看不清，请不要遮挡`; continue; }
+        if (open < 2) { warn = `${SIDE_CN[h.side]}其余手指请保持张开`; continue; }
+        st.prog[h.side]++;
+        if (st.evidence.length < 8) { const p = h.lm[4]; st.evidence.push({ label: `${SIDE_CN[h.side]}拇指碰${FINGER_CN[target]}`, img: cropImage(p.x, p.y, 1.6 * palmLen(h.lm), 160) }); }
       }
       st.metrics = { 右手完成: `${st.prog.right}/4`, 左手完成: `${st.prog.left}/4` };
       if (st.prog.right >= 4 && st.prog.left >= 4) { st.evidence.push({ label: '对捏完成', img: snapshot(true, handsBox(), 480, 0.8) }); return { done: true }; }
       const side = st.prog.right < 4 ? 'right' : 'left';
-      return { hint: `${SIDE_CN[side]}：拇指碰${FINGER_CN[FINGERS[st.prog[side] + 1]]}` };
+      return { hint: warn || `${SIDE_CN[side]}：拇指碰${FINGER_CN[FINGERS[st.prog[side] + 1]]}` };
     },
   },
   // 随机挑战：防回放录像。轮数、每轮时限来自 thresholds.yaml 的 capture 段
@@ -685,7 +820,9 @@ const STEP_LIB = {
       st.roundStart ??= now;
       if (now - st.roundStart > ROUND_MS) { st.metrics[`第${st.phase + 1}轮`] = '超时'; st.failed++; return nextRound(this, st, now); }
       if (!S.hands.length) return { hint: '请把手举到镜头前' };
-      return S.hands.some(h => extendedCount(h.lm) === st.nums[st.phase]) ? { ok: true } : { hint: `请伸出 ${st.nums[st.phase]} 根手指` };
+      if (handOverlap(S.hands)) return { hint: '请把两只手分开' };
+      // 关键点数出的伸直手指和像素上看得到的伸直手指都要等于要求的数（被遮挡、脑补的手指不算）
+      return S.hands.some(h => extendedCount(h.lm) === st.nums[st.phase] && seenExtendedCount(h, handEvidence(h)) === st.nums[st.phase]) ? { ok: true } : { hint: `请伸出 ${st.nums[st.phase]} 根手指` };
     },
     onHold(st, now) { st.metrics[`第${st.phase + 1}轮响应(秒)`] = r2((now - st.roundStart) / 1000); return nextRound(this, st, now); },
   },
@@ -860,7 +997,17 @@ async function endRun() {
 }
 
 // 自动化测试与调试用
-window.limbcheckDemo = { state: S, buildExport };
+window.limbcheckDemo = {
+  state: S, buildExport,
+  // 对一张图片跑手部关键点 + 手指像素证据（回归测试用，不影响检测流程）
+  async checkHandsImage(src, view = 'backs') {
+    const im = new Image(); im.src = src; await im.decode();
+    W = im.naturalWidth; H = im.naturalHeight; grab.width = W; grab.height = H; gctx.drawImage(im, 0, 0);
+    readHands(handLm.detectForVideo(grab, (S.testTs = Math.max((S.testTs || 0) + 100, performance.now()))));
+    const exp = VIEWS[view]?.expected_hands || 2;
+    return { hands: S.hands.map(h => ({ side: h.side, facing: facing(h), extended: extendedCount(h.lm), evidence: handEvidence(h) })), keypoints: fingersResult(S.hands, exp), evidence: fingersEvidenceResult(S.hands, exp, ['palms', 'backs'].includes(view)) };
+  },
+};
 
 // ---------- 验证模式：记录受检者真实情况，导出后可用 `limbcheck import-demo` 计算指标 ----------
 // configs/checks.json 里新增的检测项自动加一个"有 / 无 / 未标注"的标注框，不用改页面

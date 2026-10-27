@@ -10,8 +10,8 @@ from limbcheck.pipeline import Pipeline
 
 
 def _two_hands():
-    r = make_hand("right", "palm", center=(170, 420))
-    l = make_hand("left", "palm", center=(470, 420))
+    r = make_hand("right", "palm", center=(170, 420), spread=True)
+    l = make_hand("left", "palm", center=(470, 420), spread=True)
     return r, l
 
 

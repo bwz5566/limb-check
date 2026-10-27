@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..geometry import palm_len, rgb_to_lab
+from ..geometry import angle, palm_len, rgb_to_lab
 from ..keypoints import HAND_FINGER_IDS, Hand
 from ..core import FINGER_CN, FINGERS, CheckResult, Finding
 
@@ -140,12 +140,15 @@ class Sam2Mask:
         return masks[int(np.argmax(scores))].astype(np.uint8)
 
 
-def tip_coverage(mask: np.ndarray, pts: np.ndarray, finger: str, radius: int | None = None) -> float:
-    """手指远端一节（DIP→指尖，拇指 IP→指尖）上采样点落在掩码内的比例。"""
+GAP_PAIRS = (("index", "middle"), ("middle", "ring"), ("ring", "little"))
+
+
+def tip_coverage(mask: np.ndarray, pts: np.ndarray, finger: str, radius: int | None = None, segment: int = 2) -> float:
+    """手指一节上采样点落在掩码内的比例。segment=2：远端一节（DIP→指尖，拇指 IP→指尖）；segment=1：中节（PIP→DIP）。"""
     ids = HAND_FINGER_IDS[finger]
     if radius is None:
         radius = max(2, int(0.03 * palm_len(pts)))
-    a, b = pts[ids[2]], pts[ids[3]]
+    a, b = pts[ids[segment]], pts[ids[segment + 1]]
     h, w = mask.shape[:2]
     hits = 0
     for t in SAMPLES_T:
@@ -153,6 +156,36 @@ def tip_coverage(mask: np.ndarray, pts: np.ndarray, finger: str, radius: int | N
         if 0 <= x < w and 0 <= y < h:
             hits += bool(mask[max(0, y - radius): y + radius + 1, max(0, x - radius): x + radius + 1].any())
     return hits / len(SAMPLES_T)
+
+
+def finger_straight(pts: np.ndarray) -> dict[str, bool]:
+    return {f: angle(*(pts[i] for i in (HAND_FINGER_IDS[f][0], HAND_FINGER_IDS[f][1], HAND_FINGER_IDS[f][3]))) > 145 for f in FINGERS}
+
+
+def finger_gaps(mask: np.ndarray, pts: np.ndarray, min_spread: float = 0.33) -> dict[str, bool | str | None]:
+    """相邻两指之间有没有缝隙：两指都伸直、末节中点距离 ≥ min_spread 掌长（已分开）时，两指之间应有点落在掩码外。
+    True：有缝隙；False：被别的手、肤色物体挡住，或关键点画在了别处的皮肤上（之间也是"皮肤"）；
+    "closed"：两指伸直但并拢，无法确认（被遮挡的手指可能"藏"在相邻手指上）；None：有手指蜷起，不判断。"""
+    palm = palm_len(pts)
+    h, w = mask.shape[:2]
+    out = {}
+    straight = finger_straight(pts)
+    for a, b in GAP_PAIRS:
+        if not (straight[a] and straight[b]):        # 只在两指都伸直时判断（蜷起的手指压在掌面上，中间本来就是皮肤）
+            out[f"{a}-{b}"] = None
+            continue
+        pa = (pts[HAND_FINGER_IDS[a][2]] + pts[HAND_FINGER_IDS[a][3]]) / 2
+        pb = (pts[HAND_FINGER_IDS[b][2]] + pts[HAND_FINGER_IDS[b][3]]) / 2
+        if np.linalg.norm(pa - pb) < min_spread * palm:
+            out[f"{a}-{b}"] = "closed"
+            continue
+        vals = []
+        for t in (0.35, 0.5, 0.65):           # 两指之间取 3 点，任一点不是皮肤即有缝隙（手指稍有歪斜也能找到）
+            x, y = np.round(pa + t * (pb - pa)).astype(int)
+            if 0 <= x < w and 0 <= y < h:
+                vals.append(bool(mask[y, x]))
+        out[f"{a}-{b}"] = None if not vals else not all(vals)
+    return out
 
 
 def palm_coverage(mask: np.ndarray, pts: np.ndarray, radius: int | None = None) -> float:
@@ -171,18 +204,23 @@ def palm_coverage(mask: np.ndarray, pts: np.ndarray, radius: int | None = None) 
     return hits / len(samples)
 
 
-def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expected: int) -> tuple[CheckResult, dict]:
-    """返回 (CheckResult, 每只手每根手指及掌面的覆盖率)。"""
+def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expected: int,
+                   open_hand: bool = False) -> tuple[CheckResult, dict]:
+    """返回 (CheckResult, 每只手每根手指及掌面的覆盖率)。
+    open_hand：张开五指的视角（掌心、手背）。此时有手指蜷起或并拢就无法逐指确认（被遮挡、缺失的手指关键点会"藏"在掌面或相邻手指上），
+    没有发现问题时也不给"正常"，结果为"无法判断"交人工。"""
     source = f"L1:contour-{backend.name}"
     thr = th.get("tip_on_mask_min", 0.5)
     palm_thr = th.get("palm_on_mask_min", 0.7)
-    findings, parts, covs, detail = [], [], [], {}
+    findings, parts, covs, detail, unverified = [], [], [], {}, []
     for hand in hands:
         side = hand.side or "unknown"
         mask = backend.hand_mask(img, hand, th)
-        cov = {f: tip_coverage(mask, hand.pts, f) for f in FINGERS}
+        # 末节、中节都要落在掩码内：手指蜷起、被遮挡时关键点仍画出伸直的手指，其中一节会落到背景上
+        cov = {f: min(tip_coverage(mask, hand.pts, f), tip_coverage(mask, hand.pts, f, segment=1)) for f in FINGERS}
         pc = palm_coverage(mask, hand.pts)
-        detail[side] = {**cov, "palm": pc}
+        gaps = finger_gaps(mask, hand.pts, th.get("gap_min_spread", 0.33))
+        detail[side] = {**cov, "palm": pc, "gaps": gaps}
         if pc < palm_thr:
             parts.append(f"{side}_hand.palm")
             findings.append(Finding("fingers", f"{side}_hand.palm", "palm_off_mask", True, round(0.5 + 0.5 * (1 - pc), 3), source, pc,
@@ -192,9 +230,24 @@ def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expect
             if c < thr:
                 parts.append(f"{side}_hand.{f}")
                 findings.append(Finding("fingers", f"{side}_hand.{f}", "tip_off_mask", True, round(0.5 + 0.5 * (1 - c), 3), source, c,
-                                        f"{FINGER_CN[f]}指尖段只有 {c:.0%} 落在手部轮廓内，疑似关键点脑补"))
+                                        f"{FINGER_CN[f]}只有 {c:.0%} 落在手部轮廓内，疑似被遮挡、蜷起或缺失（关键点脑补）"))
+        for pair, ok in gaps.items():
+            if ok is False:
+                a, b = pair.split("-")
+                parts += [p for p in (f"{side}_hand.{a}", f"{side}_hand.{b}") if p not in parts]
+                findings.append(Finding("fingers", f"{side}_hand.{a}", "no_gap", True, 0.6, source, pair,
+                                        f"{FINGER_CN[a]}和{FINGER_CN[b]}之间看不到缝隙，疑似被遮挡（关键点脑补）"))
+        if open_hand:
+            bent = [f for f, ok in finger_straight(hand.pts).items() if not ok]
+            closed = [p for p, ok in gaps.items() if ok == "closed"]
+            if bent or closed:
+                unverified.append(side)
+                findings.append(Finding("fingers", f"{side}_hand", "uncertain", False, 0.0, source, {"bent": bent, "closed": closed},
+                                        "有手指蜷起或并拢，无法逐指确认每根手指都在"))
     if parts:
-        return CheckResult("fingers", source, True, max(f.confidence for f in findings), sorted(parts), True, findings), detail
+        return CheckResult("fingers", source, True, max(f.confidence for f in findings), sorted(set(parts)), True, findings), detail
+    if unverified:
+        return CheckResult("fingers", source, None, 0.0, [], False, findings, "有手指蜷起或并拢，无法逐指确认每根手指都在"), detail
     if len(hands) < expected or not covs:
         return CheckResult("fingers", source, None, 0.0, [], False, findings, f"只检测到 {len(hands)} 只手"), detail
     return CheckResult("fingers", source, False, round(0.5 + 0.5 * min(covs), 3), [], True, findings), detail

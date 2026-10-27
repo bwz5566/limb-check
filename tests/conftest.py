@@ -25,8 +25,14 @@ def hand_points(side: str = "right", facing: str = "back", center=(300.0, 420.0)
     return pts * scale + np.asarray(center)
 
 
-def make_hand(side="right", facing="back", center=(300.0, 420.0), scale=120.0, score=0.95) -> Hand:
-    return Hand(pts=hand_points(side, facing, center, scale), score=score, side=side, side_score=0.95)
+def make_hand(side="right", facing="back", center=(300.0, 420.0), scale=120.0, score=0.95, spread=False) -> Hand:
+    """spread=True：四指向外展开（掌心 / 手背视角要求五指分开，像素上才能逐指确认）。"""
+    pts = hand_points(side, facing, center, scale)
+    if spread:
+        sign = 1 if (side == "left") != (facing == "palm") else -1      # 与 hand_points 的水平镜像一致
+        for ids, k in (((6, 7, 8), -1.6), ((14, 15, 16), 1.6), ((18, 19, 20), 2.6)):
+            pts[list(ids), 0] += -sign * k * 0.12 * scale * np.array([0.6, 0.85, 1.0])
+    return Hand(pts=pts, score=score, side=side, side_score=0.95)
 
 
 def draw_hand(pts: np.ndarray, shape=(560, 640), skip: tuple[str, ...] = (), skin=(205, 160, 135), bg=(250, 250, 250)) -> np.ndarray:

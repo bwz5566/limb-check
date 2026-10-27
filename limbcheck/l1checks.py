@@ -92,7 +92,8 @@ def fingers_contour(ctx: L1Context) -> CheckResult | None:
         return None
     from .adapters.contour import contour_result
 
-    res, cov = ctx._timed("contour", lambda: contour_result(ctx.img, ctx.hands, ctx.contour, ctx.th["contour"], ctx.expected_hands))
+    res, cov = ctx._timed("contour", lambda: contour_result(ctx.img, ctx.hands, ctx.contour, ctx.th["contour"], ctx.expected_hands,
+                                                                     open_hand=ctx.view in ("palms", "backs")))
     ctx.detail["tip_coverage"] = cov
     return res
 
