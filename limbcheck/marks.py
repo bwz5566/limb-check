@@ -70,7 +70,7 @@ def ref_area_mm2(ref: str, pol: dict | None = None) -> float:
     return w * h
 
 
-REF_CN = {"id_card": "身份证（85.6×54 mm）", "coin": "1 分硬币（直径 1.8 cm）"}
+REF_CN = {"id_card": "身份证（85.6×54 mm）", "coin": " 1 分硬币（直径 1.8 cm）"}
 
 
 # ---------------- 标记 ----------------
@@ -192,7 +192,7 @@ def size_class(m: Mark, ref: str, pol: dict | None = None) -> tuple[str | None, 
 
 
 def _fmt_size(info: dict) -> str:
-    ref = "身份证" if info.get("ref") == "id_card" else "1 分硬币"
+    ref = "身份证" if info.get("ref") == "id_card" else " 1 分硬币"
     if "area_cm2" in info:
         return f"约 {info['area_cm2']} cm²，是{ref}的 {info['ratio']} 倍（按{info['source']}估算）"
     if info.get("vs_ref"):
@@ -225,10 +225,11 @@ def eval_tattoo(m: Mark, pol: dict | None = None) -> tuple[str, list[tuple[str, 
         faded = ink == "faded"
         ref_cn = REF_CN[ref]
         if cls == "large":
-            hits.append((reg["large_faded"], f"面积 ≥ {ref_cn}，但已洗过、色素明显变淡") if faded
-                        else (reg["large"], f"面积 ≥ {ref_cn}"))
+            hits.append((reg["large_faded"], f"面积 ≥ {ref_cn.strip()}，但已洗过、色素明显变淡") if faded
+                        else (reg["large"], f"面积 ≥ {ref_cn.strip()}"))
         elif cls == "near":
-            hits.append((PASS if faded and reg["large_faded"] == PASS else REVIEW, f"面积接近{ref_cn}（临界），以核验为准"))
+            why = f"按关键点估算的面积与大模型目测（与{ref_cn}比）不一致" if info.get("conflict") else f"面积接近{ref_cn}（临界）"
+            hits.append((PASS if faded and reg["large_faded"] == PASS else REVIEW, f"{why}，以核验为准"))
         elif cls == "small":
             hits.append((PASS, f"面积小于{ref_cn}"))
         else:

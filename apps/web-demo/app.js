@@ -22,12 +22,13 @@ const BODY_IDS = Object.values(J);
 const LIMBS = { left_arm: ['left_shoulder', 'left_elbow', 'left_wrist'], right_arm: ['right_shoulder', 'right_elbow', 'right_wrist'], left_leg: ['left_hip', 'left_knee', 'left_ankle'], right_leg: ['right_hip', 'right_knee', 'right_ankle'] };
 const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿' };
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
-const SEG_CN = { upper_arm: '上臂', forearm: '前臂', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
+const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右长度差异大', uncertain: '不确定' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '指尖不在轮廓内', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右长度差异大', uncertain: '不确定' };
 const DECISION_CN = { pass: '满足', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4 };
+const VERDICT_CN = { pass: ['符合标准', 's-pass'], review: ['需人工核验', 's-review'], clean: ['疑似污渍·请清洁', 's-review'], block: ['不符合录用标准·待人工确认', 's-fail'] };
 const STATUS = { pass: ['完成', 's-pass'], review: ['需人工复核', 's-review'], timeout: ['未完成', 's-fail'] };
 const worst = ds => ds.filter(Boolean).reduce((a, b) => (a == null || SEVERITY[b] > SEVERITY[a] ? b : a), null);
 
@@ -61,7 +62,7 @@ function partCN(p) {
   const [a, f] = p.split('.');
   let s = PART_CN[a] || LIMB_CN[a];
   if (!s) { const m = a.match(/^(left|right)_(.+)$/); s = m ? (m[1] === 'left' ? '左' : '右') + (SEG_CN[m[2]] || m[2]) : (SEG_CN[a] || a); }
-  return f ? s + (FINGER_CN[f] || f) : s;
+  return f ? s + (FINGER_CN[f] || { palm: '掌面' }[f] || f) : s;
 }
 
 // ---------- 岗位配置 ----------
@@ -225,6 +226,36 @@ function limbsResult(body, upper, lower, source = SRC_KP) {
   return Result('limbs', source, false, r3(conf), [], true, findings);
 }
 
+// ---------- 尺度（毫米 / 像素）：纹身、疤痕估算面积用，公式与 limbcheck.geometry.mm_per_px_* 相同 ----------
+// 用人体部位当尺子（成人平均尺寸见 configs/policies/marks.yaml 的 measure.anatomy_mm），取缩短最少的那段
+const anatomy = () => WEB.policies?.marks?.measure?.anatomy_mm || { palm_length: 100, palm_breadth: 70, forearm: 250, upper_arm: 300 };
+function mmPerPxHands(hands) {
+  const a = anatomy();
+  const est = hands.map(h => {
+    const c = [], pl = palmLen(h.lm), pb = dist(h.lm[5], h.lm[17]);
+    if (pl > 1) c.push(a.palm_length / pl);
+    if (pb > 1) c.push(a.palm_breadth / pb);
+    return c.length ? Math.min(...c) : null;
+  }).filter(v => v != null);
+  return est.length ? est.reduce((x, y) => x + y, 0) / est.length : null;
+}
+function mmPerPxBody(b, minV = 0.5) {
+  if (!b) return null;
+  const a = anatomy(), c = [];
+  for (const s of ['left', 'right'])
+    for (const [[p, q], mm] of [[[`${s}_elbow`, `${s}_wrist`], a.forearm], [[`${s}_shoulder`, `${s}_elbow`], a.upper_arm]])
+      if (has(b, p, minV) && has(b, q, minV)) { const d = dist(b.joints[p], b.joints[q]); if (d > 1) c.push(mm / d); }
+  return c.length ? Math.min(...c) : null;
+}
+// 发给大模型的截图的比例：截图是 box 区域缩放到最长边 maxW，框坐标（0–1000）相对于截图
+function imageScale(view, box, maxW = 1280) {
+  const [, , w, h] = box || [0, 0, W, H], s = Math.min(1, maxW / Math.max(w, h));
+  const k = VIEWS[view].kind === 'hand' ? mmPerPxHands(S.hands) : (mmPerPxBody(S.body) ?? (S.hands.length ? mmPerPxHands(S.hands) : null));
+  const meta = { img_w: Math.round(w * s), img_h: Math.round(h * s) };
+  if (k) Object.assign(meta, { mm_per_px: r3(k / s), scale_source: VIEWS[view].kind === 'hand' || !mmPerPxBody(S.body) ? '手掌长宽' : '大臂 / 小臂长度' });
+  return meta;
+}
+
 // ---------- 截图与画质 ----------
 // 每帧开头把画面拷到 grab，关键点检测和截图都用这一帧，保证证据图与关键点、L1 结果一一对应
 function grabFrame() { if (grab.width !== W || grab.height !== H) { grab.width = W; grab.height = H; } gctx.drawImage(video, 0, 0, W, H); }
@@ -272,12 +303,12 @@ function l1ForView(view) {
   return { l1: out, brightness: Math.round(b) };
 }
 
-function captureView(st, view) {
+function captureView(st, view, extraImgs = []) {
   if (S.frames.some(f => f.view === view)) return;
   const { l1, brightness } = l1ForView(view);
   const box = VIEWS[view].kind === 'hand' ? handsBox() : null;
-  const img = snapshot(false, box, 1280, 0.88);
-  S.frames.push({ view, step: S.steps[S.stepIdx].id, img, l1, brightness, at_ms: Math.round(performance.now() - S.t0), hands: S.hands.map(h => ({ side: h.side, by: h.sideBy, score: r2(h.score), facing: facing(h) })) });
+  const img = snapshot(false, box, 1280, 0.88), scale = imageScale(view, box);
+  S.frames.push({ view, step: S.steps[S.stepIdx].id, img, extra_imgs: extraImgs, scale, l1, brightness, at_ms: Math.round(performance.now() - S.t0), hands: S.hands.map(h => ({ side: h.side, by: h.sideBy, score: r2(h.score), facing: facing(h) })) });
   st.views = [...(st.views || []), view];
   st.evidence.push({ label: VIEWS[view].name, img: snapshot(true, box, 480, 0.8) });
   st.flags = [...(st.flags || []), ...Object.values(l1).flatMap(r => r.findings.filter(f => f.positive).map(f => `${partCN(f.part)}：${f.note || LABEL_CN[f.label] || f.label}`))];
@@ -285,14 +316,14 @@ function captureView(st, view) {
     st.hands = [...(st.hands || []), ...S.hands.map(h => ({ view, side: h.side, score: r2(h.score), ...analyzeFingers(h.lm) }))];
     if (viewChecks(view).includes('nails')) st.nails = [...(st.nails || []), ...S.hands.filter(h => facing(h) === 'back').map(h => ({ view, side: h.side, nails: nailSamples(h.lm, true) }))];
   }
-  requestReview(view, img);
+  requestReview(view, [img, ...extraImgs], scale);
 }
 
 // ---------- L2：视觉大模型复核（提示词、解析、转换都在服务端，与离线评测同一套） ----------
-function requestReview(view, img) {
+function requestReview(view, images, meta) {
   if (!VLM.vlm || !$('#useVlm').checked) return;
   const t0 = performance.now();
-  S.reviews.push(fetch('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, enabled: enabledChecks(), images: [img] }) })
+  S.reviews.push(fetch('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, enabled: enabledChecks(), images, meta, job: S.job.id }) })
     .then(async r => { const d = await r.json(); return r.ok ? { ...d, view, roundtrip_ms: Math.round(performance.now() - t0) } : { view, results: {}, errors: [d.error || r.statusText] }; })
     .catch(e => ({ view, results: {}, errors: [String(e)] })));
 }
@@ -451,6 +482,56 @@ const STEP_LIB = {
       if (st.phase === 0) { st.evidence.push({ label: '下蹲', img: snapshot(true, null, 480, 0.8) }); st.phase = 1; say(this.text(st), true); return { done: false }; }
       return { done: true };
     },
+  },
+  // 颈部：抬下巴向左、向右转头，两张图一起交给大模型（脖子有纹身即不录用，不需要量尺寸）
+  neck: {
+    title: '露出脖子（左右转头）', needs: ['pose'],
+    text: st => st.phase ? '再慢慢把头转向右侧，露出左侧脖子' : '请走近到约 1 米，抬起下巴，把头转向左侧，露出右侧脖子',
+    check(st) {
+      const b = S.body;
+      if (!b || !has(b, 'left_shoulder', 0.5) || !has(b, 'right_shoulder', 0.5) || !has(b, 'nose', 0.3)) return { hint: '请让头和双肩出现在画面中' };
+      const sw = dist(b.joints.left_shoulder, b.joints.right_shoulder);
+      st.metrics['肩宽占画面'] = r2(sw / W);
+      if (sw < 0.25 * W) return { hint: '请再走近一些' };
+      // 未镜像画面里受检者的左侧在画面右侧：头转向自己左侧时鼻子向画面右侧移动
+      const turn = (b.joints.nose.x - (b.joints.left_shoulder.x + b.joints.right_shoulder.x) / 2) / sw;
+      st.metrics['转头'] = r2(turn);
+      if (st.phase === 0 ? turn < 0.12 : turn > -0.12) return { hint: st.phase === 0 ? '请把头再转向左侧' : '请把头再转向右侧' };
+      return { ok: true };
+    },
+    onHold(st) {
+      if (st.phase === 0) { st.firstImg = snapshot(false, null, 1280, 0.88); st.evidence.push({ label: '颈部（向左转头）', img: snapshot(true, null, 480, 0.8) }); st.phase = 1; say(this.text(st), true); return { done: false }; }
+      captureView(st, 'neck', st.firstImg ? [st.firstImg] : []);
+      return { done: true };
+    },
+    onTimeout(st) { if (S.body) { captureView(st, 'neck', st.firstImg ? [st.firstImg] : []); return 'review'; } return 'timeout'; },
+  },
+  // 双臂近景：小臂横放在胸前，先手背和小臂外侧朝镜头，再翻转为掌心和小臂内侧；用前臂长度估算纹身大小
+  arms_close: {
+    title: '双臂近景（外侧 → 内侧）', needs: ['pose', 'hands'],
+    text: st => st.phase ? '把小臂翻过来，掌心和小臂内侧朝向镜头' : '请走近到约 1 米，双臂屈肘抬到胸前，小臂水平横放，手背和小臂外侧朝向镜头',
+    check(st) {
+      const b = S.body, mv = TH.pose.min_visibility;
+      if (!b) return { hint: '请让上半身出现在画面中' };
+      const inFrame = p => p.x > 0.01 * W && p.x < 0.99 * W && p.y > 0.01 * H && p.y < 0.99 * H;
+      for (const [name, e, w] of [['左臂', 'left_elbow', 'left_wrist'], ['右臂', 'right_elbow', 'right_wrist']]) {
+        if (!has(b, e, mv) || !has(b, w, mv) || !inFrame(b.joints[e]) || !inFrame(b.joints[w])) return { hint: `${name}小臂请完整放进画面` };
+        const dx = Math.abs(b.joints[w].x - b.joints[e].x), dy = Math.abs(b.joints[w].y - b.joints[e].y), len = Math.hypot(dx, dy);
+        st.metrics[`${name}小臂占画面`] = r2(len / W);
+        if (dy > 0.6 * dx) return { hint: `${name}小臂请水平横放在胸前` };
+        if (len < 0.15 * W) return { hint: '请再走近镜头一些' };
+      }
+      const want = st.phase ? 'palm' : 'back';
+      if (S.hands.length < 2) return { hint: '请让双手也出现在画面中' };
+      for (const h of S.hands) if (facing(h) !== want) return { hint: `${SIDE_CN[h.side] || '手'}请${want === 'back' ? '手背' : '掌心'}朝向镜头` };
+      return { ok: true };
+    },
+    onHold(st) {
+      captureView(st, st.phase ? 'arms_in' : 'arms_out');
+      if (st.phase === 0) { st.phase = 1; say(this.text(st), true); return { done: false }; }
+      return { done: true };
+    },
+    onTimeout: captureOnTimeout(st => (st.phase ? 'arms_in' : 'arms_out'), 'pose'),
   },
   palms: { title: '双手掌心朝前', ...handPose('palm') },
   backs: { title: '翻转为手背朝前', ...handPose('back') },
@@ -621,7 +702,7 @@ function nextStep() {
   step.init?.(step.state);
   document.querySelectorAll('#stepList li').forEach((li, i) => li.classList.toggle('active', i === S.stepIdx));
   const prev = S.steps[S.stepIdx - 1];
-  const moveHint = prev && prev.needs.includes('pose') && step.needs.includes('hands') ? '身体部分完成。' : '';
+  const moveHint = prev && prev.needs.includes('pose') && !step.needs.includes('pose') ? '身体部分完成。' : '';
   $('#banner').textContent = `${S.stepIdx + 1}/${S.steps.length} ${step.text(step.state)}`;
   say(moveHint + step.text(step.state), true);
 }
@@ -670,7 +751,8 @@ function readValidation() {
     document.querySelectorAll('#vFingers input[data-f]:checked').forEach(i => truth.fingers[i.dataset.side].push(i.dataset.f));
     truth.nails = { right: $('#vNailR').checked, left: $('#vNailL').checked };
   }
-  for (const k of ['tattoo', 'scar', 'limbs', ...extraChecks()]) { const x = val(`#v_${k}`); if (x) truth[k] = x === 'yes'; }
+  for (const k of ['limbs', ...extraChecks()]) { const x = val(`#v_${k}`); if (x) truth[k] = x === 'yes'; }
+  for (const k of ['tattoo', 'scar']) { const x = val(`#v_${k}`); if (x) truth[k] = x; }   // none / pass / review / block（按录用标准）
   if (val('#v_hair')) truth.hair = val('#v_hair');
   if (val('#v_attack')) truth.attack = val('#v_attack');
   const meta = {};
@@ -692,7 +774,8 @@ function buildExport() {
     config: { prompt_version: WEB.prompt_version, thresholds_version: TH.version, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null },
     perf: perfSummary(),
     steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note, ms: r.ms, metrics: r.metrics, views: r.views })),
-    frames: S.frames.map(({ view, step, img, l1, brightness, at_ms, hands }) => ({ view, step, img, l1, brightness, at_ms, hands })),
+    frames: S.frames.map(({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands }) => ({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands })),
+    retakes: S.retakes || 0,
     reviews: S.reviewsDone,
     arbitration_by_view: S.arb.by_view, arbitration: { by_check: S.arb.by_check, overall: S.arb.overall, error: S.arb.error },
     duration_ms: S.durationMs,
@@ -708,7 +791,8 @@ function requirementRows() {
     const mode = modeOf(c); if (mode === 'off') continue;
     const a = arb.by_check?.[c];
     const reasons = Object.entries(arb.by_view || {}).filter(([, r]) => r[c] && r[c].shadow === a?.shadow).map(([v, r]) => `${VIEWS[v].name}：${shortReason(r[c].reason)}`);
-    rows.push({ name: d.name, kind: '图像判定', mode, decision: a ? a.decision : 'not_assessed', shadow: a?.shadow, reason: a ? reasons.slice(0, 2).join('；') : '没有可用的模型结果（该项需要 L2 大模型或尚无 L1 模型）' });
+    const notes = a?.notes || [];
+    rows.push({ name: d.name, kind: CHECKS[c].appearance && S.job.basis?.some(b => (b.checks || []).includes(c)) ? '录用标准' : '图像判定', mode, decision: a ? a.decision : 'not_assessed', shadow: a?.shadow, reason: a ? [...notes, ...reasons.slice(0, 2)].join('；') : '没有可用的模型结果（该项需要 L2 大模型或尚无 L1 模型）' });
   }
   const motion = [['上肢活动（侧平举、上举）', ['arms'], 'limbs'], ['下肢活动、下蹲', ['legs', 'squat'], 'limbs'], ['握拳与张开', ['flex'], 'fingers'], ['拇指与各指对捏', ['pinch'], 'fingers']];
   for (const [name, ids, c] of motion) {
@@ -749,6 +833,7 @@ function renderReport() {
   const handRows = S.results.filter(r => r.hands?.length).flatMap(r => r.hands.map(h => `<tr><td>${esc(VIEWS[h.view].name)}</td><td>${SIDE_CN[h.side] || '?'}</td><td>${h.extended}</td><td>${FINGERS.map(f => `${FINGER_CN[f]} ${h.fingers[f].ratio}${h.fingers[f].short ? ' <b class="s-review">疑似缺失或短缩</b>' : ''}`).join('<br>')}</td><td>${h.mid_to_palm}</td></tr>`)).join('');
   const nailRows = S.results.flatMap(r => r.nails || []).map(h => `<p><b>${SIDE_CN[h.side] || '?'}</b></p><div class="thumbs nails">${h.nails.map(n => `<figure><img src="${n.img}"><figcaption class="muted small">${FINGER_CN[n.finger]} ΔE ${n.deltaE}${n.flag ? ' <b class="s-review">疑似美甲</b>' : ''}</figcaption></figure>`).join('')}</div>`).join('');
   const revBlock = !S.reviewsDone.length ? `<p class="muted">${VLM.vlm ? '本次未启用大模型复核' : '未配置大模型（见 apps/web-demo/README.md）'}</p>` : S.reviewsDone.map(rv => `<details><summary>${esc(VIEWS[rv.view]?.name || rv.view)}${rv.model ? `（${esc(rv.model)}，提示词 ${esc(rv.prompt_version)}，${rv.latency_ms} 毫秒）` : ''}${rv.errors?.length ? ` <span class="s-review small">${esc(rv.errors.join('；'))}</span>` : ''}</summary><pre class="raw">${esc(rv.text || '')}</pre></details>`).join('');
+  const marksBlock = marksSection();
   const truthBlock = v.validation ? `<h3>验证标注</h3><pre class="raw">${esc(JSON.stringify({ subject_id: v.subject_id, truth: v.truth, meta: v.meta }, null, 2))}</pre>` : '';
 
   el.innerHTML = `
@@ -759,6 +844,7 @@ function renderReport() {
   <h3>岗位要求核对</h3>
   <p class="muted small">岗位要求：${(job.requirements || []).map(esc).join('；')}。标“只记录”的项目在没有书面岗位依据前不作判定，只保存结果用于评估。</p>
   <table><tr><th>项目</th><th>依据</th><th>结果</th><th>说明</th></tr>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="small nowrap">${r.kind}</td><td>${decisionCell(r)}</td><td class="small">${esc(r.reason)}</td></tr>`).join('')}</table>
+  ${marksBlock}
   <h3>各视角证据与判定</h3>
   <p class="muted small">L1 为浏览器内关键点 + 规则；L2 为视觉大模型；仲裁规则与离线评测相同（configs/thresholds.yaml 的 arbitration 段）。</p>
   ${frameBlock}
@@ -778,6 +864,8 @@ function renderReport() {
   <p class="muted small">导出后运行：<code>limbcheck import-demo 报告.json -o data/demo</code>，再 <code>limbcheck score --data data/demo --run runs/demo</code> 计算指标；也可用 <code>limbcheck eval --data data/demo</code> 让离线模型重跑这些截图做对比。验证标注可在右侧面板修改后再导出。</p>`;
   el.hidden = false;
   el.scrollIntoView({ behavior: 'smooth' });
+  const rt = $('#retakeBtn');
+  if (rt) rt.onclick = () => retake(JSON.parse(rt.dataset.views));
   $('#dlBtn').onclick = () => {
     const data = buildExport();
     window.__report = data;
@@ -785,6 +873,66 @@ function renderReport() {
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
     a.download = `limbcheck-${S.sessionId}.json`; a.click();
   };
+}
+
+// ---------- 纹身 / 疤痕核验（按录用标准，规则见 configs/policies/marks.yaml） ----------
+// 用框（0–1000 相对坐标）从证据截图里裁出该处，方便人工核验
+function cropDiv(frame, bbox, maxW = 140) {
+  if (!frame || !bbox || bbox.length !== 4) return '';
+  let [x1, y1, x2, y2] = bbox.map(Number);
+  const pad = 0.15 * Math.max(x2 - x1, y2 - y1);
+  x1 = Math.max(0, x1 - pad); y1 = Math.max(0, y1 - pad); x2 = Math.min(1000, x2 + pad); y2 = Math.min(1000, y2 + pad);
+  const bw = Math.max(1, x2 - x1) / 1000, bh = Math.max(1, y2 - y1) / 1000;
+  const iw = frame.scale?.img_w || W, ih = frame.scale?.img_h || H;
+  const h = Math.min(160, Math.round(maxW * (bh * ih) / (bw * iw)));
+  const px = bw < 1 ? (x1 / 1000) / (1 - bw) * 100 : 0, py = bh < 1 ? (y1 / 1000) / (1 - bh) * 100 : 0;
+  return `<div class="crop" style="width:${maxW}px;height:${h}px;background-image:url('${frame.img}');background-size:${100 / bw}% ${100 / bh}%;background-position:${px}% ${py}%"></div>`;
+}
+function marksSection() {
+  const pol = ['tattoo', 'scar'].map(c => [c, S.arb.by_check?.[c]]).filter(([, a]) => a?.policy);
+  if (!pol.length) return '';
+  const rows = pol.flatMap(([c, a]) => a.policy.marks.map(m => {
+    const fr = S.frames.find(f => f.view === m.view), [txt, cls] = VERDICT_CN[m.verdict] || [m.verdict, ''];
+    return `<tr><td>${cropDiv(fr, m.bbox) || '<span class="muted small">无框</span>'}</td><td>${esc(VIEWS[m.view]?.name || m.view)}</td><td>${esc(m.note)}</td><td class="${cls}">${txt}</td></tr>`;
+  })).join('');
+  const rules = pol.flatMap(([, a]) => a.policy.rules).map(r => `<li class="${(VERDICT_CN[r.action] || [])[1] || ''}">${esc(r.text)}</li>`).join('');
+  const reminders = pol.flatMap(([, a]) => a.policy.reminders);
+  const views = [...new Set(reminders.map(r => r.view))];
+  const remind = reminders.length ? `<div class="remind"><b>清洁提醒：</b>${reminders.map(r => esc(r.message.split(' → ')[0])).join('；')}。请清洁相关部位后重新拍摄。
+      <button id="retakeBtn" data-views='${esc(JSON.stringify(views))}'>已清洁，重拍${esc(views.map(v => VIEWS[v]?.name || v).join('、'))}</button></div>` : '';
+  if (reminders.length && !S.remindSpoken) { S.remindSpoken = true; say('检测到可能的污渍，请清洁后点击重拍', true); }
+  return `<h3>纹身 / 疤痕核验（按录用标准）</h3>
+  <p class="muted small">面积以身份证 85.6×54 mm（手指以 1 分硬币直径 1.8 cm）为参照，按手掌或小臂长度估算，个体差异约 ±15%；临界、颜色深浅和内容拿不准的一律交人工核验。系统只给建议，最终以人工核验为准。</p>
+  ${remind}
+  ${rules ? `<p><b>跨视角规则：</b></p><ul>${rules}</ul>` : ''}
+  <table><tr><th>位置</th><th>视角</th><th>说明</th><th>结论</th></tr>${rows || '<tr><td colspan="4" class="muted">未发现纹身或疤痕</td></tr>'}</table>`;
+}
+
+// 清洁后重拍：只重做拍到污渍的步骤，其余结果保留，重拍后重新复核、仲裁
+async function retake(views) {
+  const ids = [...new Set(S.frames.filter(f => views.includes(f.view)).map(f => f.step))].filter(id => STEP_LIB[id]);
+  if (!ids.length) return;
+  S.frames = S.frames.filter(f => !ids.includes(f.step));
+  const kept = new Set(S.frames.map(f => f.view));
+  S.reviews = (S.reviewsDone || []).filter(r => kept.has(r.view)).map(r => Promise.resolve(r));
+  S.results = S.results.filter(r => !ids.includes(r.id));
+  S.steps = ids.map(id => ({ ...STEP_LIB[id], id, state: null }));
+  S.retakes = (S.retakes || 0) + 1; S.remindSpoken = false;
+  $('#report').hidden = true;
+  $('#stepList').innerHTML = S.steps.map(st => `<li>${esc(st.title)}</li>`).join('');
+  if (!(await openCamera())) return;
+  $('#skipBtn').hidden = false;
+  S.running = true; S.stepIdx = -1;
+  nextStep();
+  requestAnimationFrame(loop);
+}
+
+async function openCamera() {
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false });
+  } catch (e) { $('#banner').textContent = `无法打开摄像头：${e.message}`; return false; }
+  await video.play();
+  return true;
 }
 
 // ---------- 初始化 ----------
@@ -847,10 +995,7 @@ async function start() {
   S.job = JOBS[$('#job').value];
   S.steps = makeSteps(S.job);
   $('#stepList').innerHTML = S.steps.map(s => `<li>${esc(s.title)}</li>`).join('');
-  try {
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false });
-  } catch (e) { $('#banner').textContent = `无法打开摄像头：${e.message}`; return; }
-  await video.play();
+  if (!(await openCamera())) return;
   $('#setup').hidden = true; $('#skipBtn').hidden = false;
   const d = new Date(), p = n => String(n).padStart(2, '0');
   S.sessionId = `S${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${Math.random().toString(36).slice(2, 6)}`;

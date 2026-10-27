@@ -56,3 +56,6 @@ legend { padding:0 4px; color:var(--muted); }
 #report details { margin:6px 0; } #report summary { cursor:pointer; font-size:14px; }
 code { background:#f1f5f9; padding:1px 4px; border-radius:4px; }
 .nowrap { white-space:nowrap; }
+.crop { background-repeat:no-repeat; border-radius:6px; border:1px solid var(--line); }
+.remind { background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:10px 12px; margin:10px 0; font-size:14px; }
+.remind button { width:auto; padding:6px 14px; margin-left:8px; }
