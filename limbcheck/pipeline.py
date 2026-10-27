@@ -25,8 +25,8 @@ import yaml
 from . import registry
 from .arbiter import arbitrate
 from .config import check_mode
-from .core import VIEW_CHECKS, merge_any
-from .geometry import quality
+from .core import HAND_VIEWS, VIEW_CHECKS, merge_any
+from .geometry import mm_per_px_body, mm_per_px_hands, quality
 from .l1checks import L1Context
 from .prompts import l2_checks_for
 from .vlm import VLMClient
@@ -143,6 +143,26 @@ class Pipeline:
     def enabled_checks(self, view: str) -> list[str]:
         return [c for c in VIEW_CHECKS.get(view, ()) if check_mode(self.profile, c) != "off"]
 
+    def l2_meta(self, ctx: L1Context) -> dict:
+        """给 L2 结果换算纹身 / 疤痕尺寸用的图像比例（手部视角按手掌，其余按上臂、前臂），以及岗位参数。"""
+        from .marks import policy
+
+        meta: dict = {"img_w": int(ctx.img.shape[1]), "img_h": int(ctx.img.shape[0]),
+                      "params": {c: ctx.check_params(c) for c in ("tattoo", "scar")}}
+        if ctx.keypoints is None or not set(VIEW_CHECKS.get(ctx.view, ())) & {"tattoo", "scar"}:
+            return meta
+        anatomy = policy()["measure"]["anatomy_mm"]
+        try:
+            if ctx.view in HAND_VIEWS:
+                k, src = mm_per_px_hands(ctx.hands, anatomy), "手掌长宽"
+            else:
+                k, src = mm_per_px_body(ctx.bodies[0] if ctx.bodies else None, anatomy), "上臂 / 前臂长度"
+        except Exception:   # 比例估不出来只影响尺寸换算（退回大模型目测），不影响其他判定
+            k = None
+        if k:
+            meta.update(mm_per_px=k, scale_source=src)
+        return meta
+
     def run(self, img: np.ndarray, view: str, meta: dict | None = None) -> dict:
         checks = self.enabled_checks(view)
         ctx = L1Context(img=img, view=view, th=self.th, profile=self.profile, meta=meta or {}, keypoints=self.kp,
@@ -168,11 +188,13 @@ class Pipeline:
         l2: dict = {}
         l2_checks = l2_checks_for(view, checks)
         if self.vlm and l2_checks:
-            rv = self.vlm.review(view, l2_checks, [encode_jpeg(img)])
+            l2_meta = self.l2_meta(ctx)
+            rv = self.vlm.review(view, l2_checks, [encode_jpeg(img)], l2_meta)
             l2 = rv.results
             ctx.latency["l2"] = rv.latency_ms
             errors += [f"L2: {e}" for e in rv.errors]
             ctx.detail["l2_raw"] = rv.text[:2000]
+            ctx.detail["l2_scale"] = {k: v for k, v in l2_meta.items() if k != "params"}
 
         # 质量门控只看受检部位的亮度，避免白墙背景被误判为过亮；模糊阈值尚未实测校准，先记录不使用
         q = quality(img, self.th["quality"], _subject_patch(img, ctx))

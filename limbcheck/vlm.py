@@ -51,7 +51,7 @@ class VLMError(RuntimeError):
 
 class VLMClient:
     def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 90, use_schema: bool = False,
-                 temperature: float = 0.0, max_tokens: int = 1024, max_images: int = 6):
+                 temperature: float = 0.0, max_tokens: int = 2048, max_images: int = 6):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key or "EMPTY"
@@ -94,8 +94,9 @@ class VLMClient:
             text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
         return text or ""
 
-    def review(self, view: str, checks: list[str], images: list[str]) -> Review:
-        """对一个视角的证据帧做一次复核。images 为 data URL 或 http(s) 地址。失败不抛异常，记录在 errors。"""
+    def review(self, view: str, checks: list[str], images: list[str], meta: dict | None = None) -> Review:
+        """对一个视角的证据帧做一次复核。images 为 data URL 或 http(s) 地址。失败不抛异常，记录在 errors。
+        meta：图像比例与岗位参数（见 prompts.to_check_results），纹身 / 疤痕按录用标准判定时用。"""
         rv = Review(view=view, checks=list(checks), model=self.model)
         messages = build_messages(view, rv.checks, images[: self.max_images])
         t0 = time.perf_counter()
@@ -113,5 +114,5 @@ class VLMClient:
         if rv.text:
             rv.parsed, errs = parse_reply(rv.text, rv.checks)
             rv.errors += errs
-        rv.results = to_check_results(rv.parsed, rv.checks, view, f"L2:{self.model}", rv.errors)
+        rv.results = to_check_results(rv.parsed, rv.checks, view, f"L2:{self.model}", rv.errors, meta)
         return rv

@@ -88,3 +88,17 @@ def test_lab_reference_values():
     assert np.allclose(rgb_to_lab([255, 255, 255]), [100, 0, 0], atol=0.5)
     assert np.allclose(rgb_to_lab([0, 0, 0]), [0, 0, 0], atol=0.5)
     assert np.allclose(rgb_to_lab([255, 0, 0]), [53.2, 80.1, 67.2], atol=0.6)
+
+
+def test_mm_per_px_from_hand_and_body():
+    from conftest import make_body, make_hand
+    from limbcheck.geometry import mm_per_px_body, mm_per_px_hands
+
+    anatomy = {"palm_length": 100, "palm_breadth": 70, "forearm": 250, "upper_arm": 300}
+    h = make_hand(scale=200)                       # 掌长 200 像素
+    k = mm_per_px_hands([h], anatomy)
+    assert 0.3 < k <= 0.5                          # 取掌长、掌宽里缩短最少的一个，≤ 100/200
+    b = make_body(scale=100)                       # 前臂 ≈ 90 像素、上臂 ≈ 100 像素
+    kb = mm_per_px_body(b, anatomy)
+    assert kb == pytest.approx(min(250 / 90.3, 300 / 100.5), rel=0.02)
+    assert mm_per_px_hands([], anatomy) is None and mm_per_px_body(None, anatomy) is None

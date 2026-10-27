@@ -29,13 +29,16 @@ sys.path.insert(0, str(REPO))
 os.environ.setdefault("LIMBCHECK_CONFIG_DIR", str(REPO / "configs"))
 
 from limbcheck.arbiter import arbitrate, worst  # noqa: E402
-from limbcheck.core import VIEW_CHECKS, CheckResult  # noqa: E402
+from limbcheck.core import CHECK_DEFS, VIEW_CN, VIEW_CHECKS, CheckResult  # noqa: E402
+from limbcheck.marks import session_review, set_policy  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
 from limbcheck.vlm import VLMClient  # noqa: E402
 
 MODELS = Path(os.environ.get("LIMBCHECK_MODELS_DIR") or REPO / "models")
 WEB_CONFIG = json.loads((ROOT / "config.generated.json").read_text(encoding="utf-8"))
 JOBS = {j["id"]: j for j in WEB_CONFIG["jobs"]}
+set_policy(WEB_CONFIG["policies"]["marks"])      # 录用标准与网页配置同源（configs/policies/marks.yaml 生成）
+DECISION_OF_ACTION = {"block": "fail_suggested", "review": "review", "clean": "redo", "pass": "pass"}
 PORT = int(os.environ.get("PORT", "8000"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 MAX_BODY = 40 * 1024 * 1024
@@ -85,10 +88,34 @@ def arbitrate_session(job_id: str, frames: list[dict]) -> dict:
     by_check: dict = {}
     for view, res in by_view.items():
         for c, r in res.items():
-            e = by_check.setdefault(c, {"mode": r["mode"], "views": {}, "decision": None, "shadow": None})
+            e = by_check.setdefault(c, {"mode": r["mode"], "views": {}, "decision": None, "shadow": None, "notes": []})
             e["views"][view] = r["decision"]
             e["decision"] = worst([e["decision"], r["decision"]])
             e["shadow"] = worst([e["shadow"], r["shadow"]])
+
+    def add(c: str, shadow: str, note: str) -> None:
+        e = by_check.get(c)
+        if e is None:
+            return
+        e["notes"].append(note)
+        e["shadow"] = worst([e["shadow"], shadow])
+        if e["mode"] == "judge":
+            e["decision"] = worst([e["decision"], shadow])
+
+    # 必拍视角（如手部要同时看掌心和手背）缺了 → 人工复核
+    seen = {fr["view"] for fr in frames}
+    for c, d in CHECK_DEFS["checks"].items():
+        miss = [v for v in d.get("required_views", []) if v not in seen]
+        if miss and mode_of(job, c) != "off":
+            by_check.setdefault(c, {"mode": mode_of(job, c), "views": {}, "decision": None, "shadow": None, "notes": []})
+            add(c, "review", f"未采集到{'、'.join(VIEW_CN[v] for v in miss)}，无法确认手掌、手背均正常")
+    # 纹身 / 疤痕的跨视角规则（手指纹身 ≥ 2 处、手背多处、疤痕搭配纹身）和清洁提醒
+    sessions = session_review({fr["view"]: fr.get("l2") or {} for fr in frames})
+    for c, sr in sessions.items():
+        if c in by_check:
+            by_check[c]["policy"] = sr.to_dict()
+            for r in sr.rules:
+                add(c, DECISION_OF_ACTION[r["action"]], r["text"])
     overall = worst([e["decision"] for e in by_check.values() if e["mode"] == "judge"])
     return {"by_view": by_view, "by_check": by_check, "overall": overall, "job": job_id, "prompt_version": prompt_version()}
 
@@ -152,7 +179,10 @@ class Handler(SimpleHTTPRequestHandler):
             checks = l2_checks_for(view, req.get("enabled"))
             if not checks:
                 return self._json(200, {"view": view, "checks": [], "results": {}, "errors": ["该视角没有需要 L2 复核的项目"]})
-            rv = CLIENT.review(view, checks, req.get("images") or [])
+            job = JOBS.get(req.get("job"))
+            meta = {k: v for k, v in (req.get("meta") or {}).items() if k in ("mm_per_px", "img_w", "img_h", "scale_source")}
+            meta["params"] = {c: (job["checks"].get(c) or {}).get("params") or {} for c in ("tattoo", "scar")} if job else {}
+            rv = CLIENT.review(view, checks, req.get("images") or [], meta)
             return self._json(200, rv.to_dict())
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()

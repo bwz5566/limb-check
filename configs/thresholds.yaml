@@ -30,6 +30,7 @@ fingers:
 
 contour:
   tip_on_mask_min: 0.5       # 指尖段采样点落在手部掩码内的比例下限，低于此值判"关键点脑补"
+  palm_on_mask_min: 0.75     # 掌面内部采样点落在手部掩码内的比例下限，低于此值判"疑似手掌 / 手背残缺"（建议初值，未经实测）
   skin_delta_e: 20           # skin 后端：与手背肤色的 Lab 色差上限
   mask_dilate_px: 3
 
@@ -48,4 +49,5 @@ arbitration:
   low_conf: 0.5              # 两路不一致且一方低于此值时优先重做
   max_redo: 1
   per_check:                 # 按检测项覆盖上面的值
-    scar: {high_conf: 0.9}   # 疤痕大模型误报多，要求更高置信度才自动通过
+    tattoo: {strategy: policy}               # 按录用标准（configs/policies/marks.yaml）逐处判定
+    scar: {strategy: policy, high_conf: 0.9} # 疤痕大模型误报多，要求更高置信度才自动通过

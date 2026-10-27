@@ -5,13 +5,14 @@ requirements:
   - 双手能完成抓握
   - 上肢活动正常
   - 入职前需卸除美甲
-steps: [env, stand, back, arms, palms, backs, flex, challenge]
+steps: [env, stand, back, arms, neck, arms_close, palms, backs, flex, challenge]
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
   fingers:  {enabled: true, mode: judge, params: {pinch: false}}
   nails:    {enabled: true, mode: judge}
-  tattoo:   {enabled: true, mode: record_only}
-  scar:     {enabled: true, mode: record_only}
+  tattoo:   {enabled: true, mode: judge}         # 按录用标准判定（书面依据见 basis）
+  scar:     {enabled: true, mode: judge, params: {fine_work: false}}
   hair:     {enabled: true, mode: record_only}
   liveness: {enabled: true, mode: judge}
-basis: []
+basis:
+  - {checks: [tattoo, scar], doc: "纹身 / 疤痕录用标准（招聘方提供，2026-10）", clause: "configs/policies/marks.yaml"}

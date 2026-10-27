@@ -43,14 +43,21 @@ def test_profile_modes_and_limbs(thresholds):
 
 
 def test_plugin_l1_for_new_check(thresholds):
+    @registry.register("l1", "hair.fake_test", check="hair")
+    def fake_hair(ctx):
+        return CheckResult("hair", "L1:fake", True, 0.9, ["head"])
+
     @registry.register("l1", "tattoo.fake_test", check="tattoo")
     def fake_tattoo(ctx):
         return CheckResult("tattoo", "L1:fake", True, 0.9, ["left_forearm"])
 
     prof = load_job_profiles()["precision"]
-    p = Pipeline(thresholds, profile=prof, l1=["tattoo.fake_test"])
-    t = p.run(np.zeros((100, 100, 3), np.uint8), "stand")["results"]["tattoo"]
-    assert t["decision"] == "not_assessed" and t["shadow"] == "fail_suggested" and t["mode"] == "record_only"
+    p = Pipeline(thresholds, profile=prof, l1=["hair.fake_test", "tattoo.fake_test"])
+    res = p.run(np.zeros((100, 100, 3), np.uint8), "stand")["results"]
+    h = res["hair"]
+    assert h["decision"] == "not_assessed" and h["shadow"] == "fail_suggested" and h["mode"] == "record_only"
+    t = res["tattoo"]      # 纹身已有书面依据（录用标准）→ judge；没有逐处标准判定信息时按默认仲裁
+    assert t["decision"] == "fail_suggested" and t["mode"] == "judge"
 
 
 def test_custom_keypoint_model_by_path(thresholds):

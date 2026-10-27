@@ -18,3 +18,18 @@ def test_hallucinated_finger_is_caught(thresholds):
     assert r.positive is True
     assert r.parts == ["right_hand.ring"]
     assert cov["right"]["ring"] < thresholds["contour"]["tip_on_mask_min"]
+
+
+def test_missing_palm_part_is_caught(thresholds):
+    import cv2
+    import numpy as np
+
+    h = make_hand()
+    img = draw_hand(h.pts)
+    p = h.pts
+    c = p[[0, 1, 5, 9, 13, 17]].mean(axis=0)
+    gap = [p[0], c, p[9], p[13], p[17] + (p[17] - p[13]) * 0.5, p[0] + (p[17] - p[13]) * 0.8]   # 抹掉小指侧约 1/3 掌面
+    cv2.fillPoly(img, [np.array(gap).astype(np.int32)], (250, 250, 250))
+    r, cov = contour_result(img, [h], SkinMask(), thresholds["contour"], expected=1)
+    assert r.positive is True and "right_hand.palm" in r.parts
+    assert cov["right"]["palm"] < thresholds["contour"]["palm_on_mask_min"]

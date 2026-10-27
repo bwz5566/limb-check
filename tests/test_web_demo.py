@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from limbcheck.core import CheckResult
+from limbcheck.core import CheckResult, Finding
 
 SERVER = Path(__file__).resolve().parent.parent / "apps" / "web-demo" / "server.py"
 
@@ -61,7 +61,10 @@ def test_arbitrate_session_modes(server):
     assert f["decision"] == "review" and f["agree"] is False          # 两路不一致，最后一次尝试 → 人工复核
     assert f["shadow_first_attempt"] == "review"                       # 双方置信度都高，首次也不要求重做
     t = out["by_view"]["stand"]["tattoo"]
-    assert t["mode"] == "record_only" and t["decision"] == "not_assessed" and t["shadow"] == "pass"
+    assert t["mode"] == "judge" and t["decision"] == "pass"            # 纹身按录用标准判定（有书面依据）
+    hair = CheckResult("hair", "L2:x", True, 0.9, ["head"]).to_dict()
+    h = server.arbitrate_session("precision", [{"view": "stand", "l2": {"hair": hair}}])["by_view"]["stand"]["hair"]
+    assert h["mode"] == "record_only" and h["decision"] == "not_assessed" and h["shadow"] == "fail_suggested"
     assert out["by_check"]["fingers"]["decision"] == "review"
     assert out["overall"] == "review"                                  # 只汇总 judge 模式的项目
 
@@ -84,3 +87,23 @@ def test_models_route(server, base_url):
         assert r.status == 200 and len(r.read()) > 1_000_000
     with pytest.raises(urllib.error.HTTPError):
         urllib.request.urlopen(base_url + "/models/..%2F..%2Fpyproject.toml", timeout=10)
+
+
+def test_session_required_views_and_cross_view_marks(server):
+    fingers_ok = CheckResult("fingers", "L1:mediapipe-web", False, 0.95).to_dict()
+    out = server.arbitrate_session("precision", [{"view": "palms", "l1": {"fingers": fingers_ok}}])
+    f = out["by_check"]["fingers"]
+    assert f["decision"] == "review" and any("双手手背" in n for n in f["notes"])     # 没拍手背 → 无法确认手背正常
+
+    def finger_tattoo(side, finger):
+        v = {"verdict": "pass", "kind": "tattoo", "region": "finger", "side": side, "fingers": [finger], "attrs": {}, "rules": []}
+        return CheckResult("tattoo", "L2:x", False, 0.9, [], True,
+                           [Finding("tattoo", f"{side}_hand.{finger}", "tattoo", False, 0.9, "L2:x", v, "")]).to_dict()
+
+    out = server.arbitrate_session("precision", [
+        {"view": "backs", "l1": {"fingers": fingers_ok}, "l2": {"tattoo": finger_tattoo("right", "index")}},
+        {"view": "palms", "l1": {"fingers": fingers_ok}, "l2": {"tattoo": finger_tattoo("left", "ring")}},
+    ])
+    t = out["by_check"]["tattoo"]
+    assert t["decision"] == "fail_suggested" and "手指纹身 2 处" in t["notes"][0]
+    assert len(t["policy"]["marks"]) == 2

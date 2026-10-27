@@ -10,6 +10,10 @@
 可替换：thresholds.yaml 的 arbitration.strategy 指定策略名（默认 default），
 自定义策略用 @register("arbiter", "名称") 注册一个 fn(l1, l2, cfg, attempt) -> (decision, reason)；
 arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）。
+
+纹身、疤痕用 policy 策略：L2 结果里每处标记已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
+判为 pass / review / block / clean，策略据此给结论：block → 疑似问题·待人工确认（附命中条款）；
+clean（疑似污渍）→ 请清洁后重做；review → 人工核验；全部符合 → 按默认规则看置信度。
 """
 from __future__ import annotations
 
@@ -85,6 +89,36 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
     if can_redo:
         return REDO, f"认为正常但置信度低（{conf:.2f}）"
     return REVIEW, f"重做后置信度仍低（{conf:.2f}）"
+
+
+def _verdicts(r: CheckResult | None) -> list[tuple[str, str]]:
+    out = []
+    for f in (r.findings if r else []):
+        v = f.value if isinstance(f.value, dict) else None
+        if v and v.get("verdict"):
+            texts = [x["text"] for x in v.get("rules") or [] if x.get("action") == v["verdict"]]
+            out.append((v["verdict"], f.note if v.get("kind") else "；".join(texts)))
+    return out
+
+
+@register("arbiter", "policy")
+def policy_judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = None, attempt: int = 0) -> tuple[str, str]:
+    """按录用标准逐处判定后的结论（纹身、疤痕）。没有标准判定信息时退回默认策略。"""
+    cfg = {**DEFAULT_CFG, **(cfg or {})}
+    vs = _verdicts(l1) + _verdicts(l2)
+    if not vs:
+        return judge(l1, l2, cfg, attempt)
+    pick = lambda a: [t for v, t in vs if v == a]
+    if pick("block"):
+        return FAIL_SUGGESTED, "按录用标准疑似不符合，待人工确认：" + "；".join(pick("block"))
+    if pick("clean"):
+        msg = "；".join(pick("clean"))
+        return (REDO, msg) if attempt < cfg["max_redo"] else (REVIEW, f"{msg}；已重拍仍存在时交人工核验")
+    if pick("review"):
+        return REVIEW, "需人工核验：" + "；".join(pick("review"))
+    decision, reason = judge(l1, l2, cfg, attempt)
+    marks = [t for v, t in vs if v == "pass" and t]
+    return decision, (f"发现 {len(marks)} 处，均符合录用标准；" if marks else "") + reason
 
 
 def _yn(r: CheckResult) -> str:

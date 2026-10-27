@@ -1,6 +1,6 @@
 {
   "_comment": "由 `limbcheck export-web-config` 从 configs/ 生成，请勿手改",
-  "prompt_version": "v1",
+  "prompt_version": "v2",
   "checks": {
     "limbs": {
       "name": "四肢",
@@ -13,14 +13,18 @@
       "appearance": false
     },
     "fingers": {
-      "name": "手指",
+      "name": "手部（手指/手掌/手背）",
       "views": [
         "palms",
         "backs",
         "hand"
       ],
       "basis_required": false,
-      "appearance": false
+      "appearance": false,
+      "required_views": [
+        "palms",
+        "backs"
+      ]
     },
     "nails": {
       "name": "美甲",
@@ -38,7 +42,12 @@
         "back",
         "arms",
         "arms_up",
-        "backs"
+        "neck",
+        "arms_out",
+        "arms_in",
+        "palms",
+        "backs",
+        "hand"
       ],
       "basis_required": true,
       "appearance": true
@@ -50,7 +59,12 @@
         "back",
         "arms",
         "arms_up",
-        "backs"
+        "neck",
+        "arms_out",
+        "arms_in",
+        "palms",
+        "backs",
+        "hand"
       ],
       "basis_required": true,
       "appearance": true
@@ -86,6 +100,18 @@
     },
     "arms_up": {
       "name": "双臂上举",
+      "kind": "body"
+    },
+    "neck": {
+      "name": "颈部（左右转头）",
+      "kind": "body"
+    },
+    "arms_out": {
+      "name": "双臂外侧近景",
+      "kind": "body"
+    },
+    "arms_in": {
+      "name": "双臂内侧近景",
       "kind": "body"
     },
     "palms": {
@@ -144,6 +170,7 @@
     },
     "contour": {
       "tip_on_mask_min": 0.5,
+      "palm_on_mask_min": 0.75,
       "skin_delta_e": 20,
       "mask_dilate_px": 3
     },
@@ -164,7 +191,11 @@
       "low_conf": 0.5,
       "max_redo": 1,
       "per_check": {
+        "tattoo": {
+          "strategy": "policy"
+        },
         "scar": {
+          "strategy": "policy",
           "high_conf": 0.9
         }
       }
@@ -185,6 +216,8 @@
         "stand",
         "back",
         "arms",
+        "neck",
+        "arms_close",
         "palms",
         "backs",
         "flex",
@@ -214,13 +247,15 @@
         },
         "tattoo": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "scar": {
           "enabled": true,
-          "mode": "record_only",
-          "params": {}
+          "mode": "judge",
+          "params": {
+            "fine_work": true
+          }
         },
         "hair": {
           "enabled": true,
@@ -233,7 +268,16 @@
           "params": {}
         }
       },
-      "basis": []
+      "basis": [
+        {
+          "checks": [
+            "tattoo",
+            "scar"
+          ],
+          "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
+          "clause": "configs/policies/marks.yaml"
+        }
+      ]
     },
     {
       "id": "line",
@@ -248,6 +292,8 @@
         "stand",
         "back",
         "arms",
+        "neck",
+        "arms_close",
         "palms",
         "backs",
         "flex",
@@ -276,13 +322,15 @@
         },
         "tattoo": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "scar": {
           "enabled": true,
-          "mode": "record_only",
-          "params": {}
+          "mode": "judge",
+          "params": {
+            "fine_work": false
+          }
         },
         "hair": {
           "enabled": true,
@@ -295,7 +343,16 @@
           "params": {}
         }
       },
-      "basis": []
+      "basis": [
+        {
+          "checks": [
+            "tattoo",
+            "scar"
+          ],
+          "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
+          "clause": "configs/policies/marks.yaml"
+        }
+      ]
     },
     {
       "id": "warehouse",
@@ -311,6 +368,8 @@
         "stand",
         "back",
         "arms",
+        "neck",
+        "arms_close",
         "legs",
         "squat",
         "palms",
@@ -341,13 +400,15 @@
         },
         "tattoo": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "scar": {
           "enabled": true,
-          "mode": "record_only",
-          "params": {}
+          "mode": "judge",
+          "params": {
+            "fine_work": false
+          }
         },
         "hair": {
           "enabled": true,
@@ -360,7 +421,16 @@
           "params": {}
         }
       },
-      "basis": []
+      "basis": [
+        {
+          "checks": [
+            "tattoo",
+            "scar"
+          ],
+          "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
+          "clause": "configs/policies/marks.yaml"
+        }
+      ]
     },
     {
       "id": "food",
@@ -376,6 +446,8 @@
         "stand",
         "back",
         "arms",
+        "neck",
+        "arms_close",
         "palms",
         "backs",
         "flex",
@@ -404,13 +476,15 @@
         },
         "tattoo": {
           "enabled": true,
-          "mode": "record_only",
+          "mode": "judge",
           "params": {}
         },
         "scar": {
           "enabled": true,
-          "mode": "record_only",
-          "params": {}
+          "mode": "judge",
+          "params": {
+            "fine_work": false
+          }
         },
         "hair": {
           "enabled": true,
@@ -423,7 +497,16 @@
           "params": {}
         }
       },
-      "basis": []
+      "basis": [
+        {
+          "checks": [
+            "tattoo",
+            "scar"
+          ],
+          "doc": "纹身 / 疤痕录用标准（招聘方提供，2026-10）",
+          "clause": "configs/policies/marks.yaml"
+        }
+      ]
     }
   ],
   "appearance_checks": [
@@ -431,5 +514,156 @@
     "tattoo",
     "scar",
     "hair"
-  ]
+  ],
+  "policies": {
+    "marks": {
+      "version": 1,
+      "reference": {
+        "id_card_mm": [
+          85.6,
+          54.0
+        ],
+        "coin_diameter_mm": 18.0
+      },
+      "measure": {
+        "bbox_format": "rel1000",
+        "borderline": 0.3,
+        "anatomy_mm": {
+          "palm_length": 100,
+          "palm_breadth": 70,
+          "forearm": 250,
+          "upper_arm": 300
+        }
+      },
+      "content": {
+        "benign": {
+          "name": "无攻击性图案（小星星、叶片、云朵、小花、波浪线条等）",
+          "action": "pass"
+        },
+        "text_neutral": {
+          "name": "普通文字 / 字母 / 数字",
+          "action": "review"
+        },
+        "symbol": {
+          "name": "明显符号",
+          "action": "review"
+        },
+        "unclear": {
+          "name": "看不清图案",
+          "action": "review"
+        },
+        "beast": {
+          "name": "龙、虎、豹等猛兽（含睡眠 / 闭眼状态）",
+          "action": "block"
+        },
+        "deity_demon": {
+          "name": "牛鬼蛇神、鬼神形象",
+          "action": "block"
+        },
+        "skull_horror": {
+          "name": "骷髅、恐怖图案",
+          "action": "block"
+        },
+        "weapon": {
+          "name": "刀具、枪械等凶器",
+          "action": "block"
+        },
+        "gang": {
+          "name": "帮派 / 恐吓类图案或符号",
+          "action": "block"
+        },
+        "violent_totem": {
+          "name": "涉暴力图腾",
+          "action": "block"
+        },
+        "abusive_text": {
+          "name": "辱骂性文字",
+          "action": "block"
+        },
+        "vulgar": {
+          "name": "低俗 / 色情 / 违禁内容",
+          "action": "block"
+        }
+      },
+      "tattoo": {
+        "regions": {
+          "neck": {
+            "name": "脖子",
+            "action": "block"
+          },
+          "upper_arm": {
+            "name": "大臂",
+            "size_ref": "id_card",
+            "large": "block",
+            "large_faded": "pass",
+            "dark": "review"
+          },
+          "forearm": {
+            "name": "小臂",
+            "size_ref": "id_card",
+            "large": "block",
+            "large_faded": "pass",
+            "dark": "review"
+          },
+          "finger": {
+            "name": "手指",
+            "size_ref": "coin",
+            "large": "block",
+            "large_faded": "pass",
+            "dark": "block",
+            "max_count": 1
+          },
+          "hand_back": {
+            "name": "手背",
+            "size_ref": "id_card",
+            "large": "block",
+            "large_faded": "review",
+            "dark": "block",
+            "max_count": 1,
+            "single": "review"
+          },
+          "palm": {
+            "name": "手掌",
+            "size_ref": "id_card",
+            "large": "block",
+            "large_faded": "review",
+            "dark": "block",
+            "max_count": 1,
+            "single": "review"
+          },
+          "face": {
+            "name": "面部",
+            "action": "review"
+          },
+          "other": {
+            "name": "其他部位（背、胸、腿等）",
+            "action": "review"
+          }
+        },
+        "unknown_size": "review",
+        "covers_scar": "block",
+        "sticker": "review"
+      },
+      "scar": {
+        "short_mm": 30,
+        "long_mm": 50,
+        "large_mm": 80,
+        "parallel_multiple": "block",
+        "surgical_long_fine_work": "block",
+        "surgical_long_other": "review",
+        "hypertrophic_severe": "block",
+        "hypertrophic_mild": "review",
+        "hand_back_multiple": "block",
+        "with_tattoo": "block",
+        "large": "block",
+        "medium": "review",
+        "short_single": "pass",
+        "unknown_size": "review"
+      },
+      "stain": {
+        "action": "clean",
+        "message": "检测到{部位}可能有污渍或笔迹，请清洁后重新拍摄该部位"
+      }
+    }
+  }
 }

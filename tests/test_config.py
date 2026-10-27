@@ -5,12 +5,14 @@ from limbcheck.config import WEB_CONFIG_PATH, check_mode, load_job_profiles, loa
 from limbcheck.core import CHECKS, VIEW_CHECKS
 
 
-def test_profiles_load_and_appearance_is_record_only():
+def test_profiles_load_and_appearance_needs_basis():
     profiles = load_job_profiles()
     assert set(profiles) >= {"precision", "line", "warehouse", "food"}
     for p in profiles.values():
+        covered = {c for b in p.get("basis") or [] for c in b.get("checks") or []}
         for c in ("tattoo", "scar", "hair"):
-            assert check_mode(p, c) in ("record_only", "off")
+            assert check_mode(p, c) in ("record_only", "off") or c in covered
+        assert check_mode(p, "hair") in ("record_only", "off")     # 发色尚无书面依据
         assert set(p["checks"]) == set(CHECKS)
 
 

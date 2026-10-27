@@ -43,6 +43,25 @@ def _keep_palm_component(mask: np.ndarray, pts: np.ndarray) -> np.ndarray:
     return np.isin(labels, list(keep)).astype(np.uint8)
 
 
+def _ref_skin(img: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """参照肤色：掌面 7 个点 + 各指近节、中节中点，每个点取小块均值后再取中位数（每点一票）。
+    只用掌心一块取色时，手掌缺一块就会把背景当成肤色；多点投票对局部缺失更稳。"""
+    center = pts[list(PALM_IDS)].mean(axis=0)
+    samples = [center] + [center + 0.5 * (pts[i] - center) for i in PALM_IDS]
+    for ids in HAND_FINGER_IDS.values():
+        samples += [(pts[ids[0]] + pts[ids[1]]) / 2, (pts[ids[1]] + pts[ids[2]]) / 2]
+    h, w = img.shape[:2]
+    r = max(2, int(0.03 * palm_len(pts)))
+    cols = []
+    for x, y in samples:
+        x, y = int(round(x)), int(round(y))
+        if 0 <= x < w and 0 <= y < h:
+            cols.append(img[max(0, y - r): y + r + 1, max(0, x - r): x + r + 1].reshape(-1, 3).mean(axis=0))
+    if not cols:
+        return rgb_to_lab(np.array([[128.0, 128.0, 128.0]]))[0]
+    return np.median(rgb_to_lab(np.array(cols)), axis=0)
+
+
 class SkinMask:
     name = "skin"
 
@@ -56,15 +75,8 @@ class SkinMask:
         pts = hand.pts
         palm = palm_len(pts)
         thr = self.delta_e or th.get("skin_delta_e", 20)
-        center = pts[list(PALM_IDS)].mean(axis=0)
-        poly = (center + 0.6 * (pts[list(PALM_IDS)] - center)).astype(np.int32)
+        ref = _ref_skin(img, pts)
         h, w = img.shape[:2]
-        palm_mask = np.zeros((h, w), np.uint8)
-        cv2.fillPoly(palm_mask, [poly], 1)
-        ref_px = img[palm_mask > 0]
-        if len(ref_px) < 20:
-            ref_px = img[max(0, int(center[1]) - 3): int(center[1]) + 4, max(0, int(center[0]) - 3): int(center[0]) + 4].reshape(-1, 3)
-        ref = np.median(rgb_to_lab(ref_px), axis=0)
         x0, y0, x1, y1 = _roi(pts, img.shape, 0.5 * palm)
         lab = rgb_to_lab(img[y0:y1, x0:x1])
         d = np.sqrt((0.5 * (lab[..., 0] - ref[0])) ** 2 + (lab[..., 1] - ref[1]) ** 2 + (lab[..., 2] - ref[2]) ** 2)
@@ -143,16 +155,38 @@ def tip_coverage(mask: np.ndarray, pts: np.ndarray, finger: str, radius: int | N
     return hits / len(SAMPLES_T)
 
 
+def palm_coverage(mask: np.ndarray, pts: np.ndarray, radius: int | None = None) -> float:
+    """掌面内部采样点（掌心中心，以及中心到腕、各指根连线上 1/3、2/3 处，共 13 点）落在掩码内的比例。
+    手掌或手背有大块残缺时关键点仍会给出完整的手形，这些点会落在背景上。"""
+    if radius is None:
+        radius = max(2, int(0.03 * palm_len(pts)))
+    center = pts[list(PALM_IDS)].mean(axis=0)
+    samples = [center] + [center + t * (pts[i] - center) for i in PALM_IDS for t in (0.33, 0.66)]
+    h, w = mask.shape[:2]
+    hits = 0
+    for p in samples:
+        x, y = np.round(p).astype(int)
+        if 0 <= x < w and 0 <= y < h:
+            hits += bool(mask[max(0, y - radius): y + radius + 1, max(0, x - radius): x + radius + 1].any())
+    return hits / len(samples)
+
+
 def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expected: int) -> tuple[CheckResult, dict]:
-    """返回 (CheckResult, 每只手每根手指的覆盖率)。"""
+    """返回 (CheckResult, 每只手每根手指及掌面的覆盖率)。"""
     source = f"L1:contour-{backend.name}"
     thr = th.get("tip_on_mask_min", 0.5)
+    palm_thr = th.get("palm_on_mask_min", 0.7)
     findings, parts, covs, detail = [], [], [], {}
     for hand in hands:
         side = hand.side or "unknown"
         mask = backend.hand_mask(img, hand, th)
         cov = {f: tip_coverage(mask, hand.pts, f) for f in FINGERS}
-        detail[side] = cov
+        pc = palm_coverage(mask, hand.pts)
+        detail[side] = {**cov, "palm": pc}
+        if pc < palm_thr:
+            parts.append(f"{side}_hand.palm")
+            findings.append(Finding("fingers", f"{side}_hand.palm", "palm_off_mask", True, round(0.5 + 0.5 * (1 - pc), 3), source, pc,
+                                    f"掌面只有 {pc:.0%} 落在手部轮廓内，疑似手掌 / 手背残缺或被遮挡"))
         for f, c in cov.items():
             covs.append(c)
             if c < thr:

@@ -111,6 +111,36 @@ def fingers_result(hands: list, th: dict, expected: int, source: str) -> CheckRe
     return CheckResult("fingers", source, False, round(min(confs), 3) if confs else 0.0, [], True, findings)
 
 
+# ---------------- 尺度（毫米 / 像素），纹身疤痕估算面积用 ----------------
+# 用人体部位当"尺子"：成人平均尺寸见 configs/policies/marks.yaml 的 measure.anatomy_mm。
+# 部位不正对镜头时像素长度变短、估出的毫米 / 像素偏大（面积偏大，偏保守）；取最不缩短的那段。
+# 网页 demo（app.js 的 mmPerPxHands / mmPerPxBody）用同样的公式。
+
+def mm_per_px_hands(hands: list, anatomy: dict) -> float | None:
+    est = []
+    for h in hands:
+        pts = h.pts if hasattr(h, "pts") else h
+        cands = [anatomy["palm_length"] / d for d in (palm_len(pts),) if d > 1] + \
+                [anatomy["palm_breadth"] / d for d in (dist(pts[5], pts[17]),) if d > 1]
+        if cands:
+            est.append(min(cands))
+    return round(float(np.mean(est)), 4) if est else None
+
+
+def mm_per_px_body(body: Body | None, anatomy: dict, min_vis: float = 0.5) -> float | None:
+    if body is None:
+        return None
+    cands = []
+    for side in ("left", "right"):
+        for (a, b), mm in (((f"{side}_elbow", f"{side}_wrist"), anatomy["forearm"]),
+                           ((f"{side}_shoulder", f"{side}_elbow"), anatomy["upper_arm"])):
+            if body.has(a, min_vis) and body.has(b, min_vis):
+                d = dist(body.joints[a], body.joints[b])
+                if d > 1:
+                    cands.append(mm / d)
+    return round(min(cands), 4) if cands else None
+
+
 # ---------------- 颜色 ----------------
 
 def rgb_to_lab(rgb) -> np.ndarray:

@@ -34,6 +34,11 @@ def load_thresholds(path: str | Path | None = None) -> dict:
     return _load_yaml(Path(path) if path else config_dir() / "thresholds.yaml")
 
 
+def load_policy(name: str = "marks", path: str | Path | None = None) -> dict:
+    """录用标准（configs/policies/<name>.yaml），目前只有 marks（纹身 / 疤痕 / 污渍）。"""
+    return _load_yaml(Path(path) if path else config_dir() / "policies" / f"{name}.yaml")
+
+
 def load_acceptance(path: str | Path | None = None) -> dict:
     return _load_yaml(Path(path) if path else config_dir() / "acceptance.yaml")
 
@@ -94,6 +99,7 @@ def web_config(thresholds: dict | None = None, profiles: dict | None = None) -> 
         "thresholds": th,
         "jobs": jobs,
         "appearance_checks": list(APPEARANCE_CHECKS),
+        "policies": {"marks": load_policy("marks")},
     }
 
 
