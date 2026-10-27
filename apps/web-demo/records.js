@@ -2,6 +2,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估', none: '—' };
+const OUTCOME_CN = { pass: '通过', conditional: '有条件通过', manual: '待人工确认', redo: '需重做', fail: '不符合', none: '—' };
 const STATUS_CN = { pass: '完成', review: '需复核', timeout: '未完成' };
 let CHK = {};
 const pct = x => (x == null ? '—' : `${Math.round(x * 100)}%`);
@@ -26,7 +27,7 @@ async function load() {
       <td class="small">${s.top_hints.map(h => `${esc(h.text)}<span class="muted">（${h.sessions} 次检测，共 ${h.total_s} 秒）</span>`).join('<br>') || '—'}</td>
       <td>${s.confusing || ''}</td></tr>`).join('');
   const checks = Object.entries(d.checks).map(([c, v]) => `<tr><td>${esc(CHK[c] || c)}</td><td class="small">${dist(v)}</td></tr>`).join('');
-  const recent = d.recent.map(s => `<tr><td class="small nowrap">${esc(s.at)}</td><td class="small">${esc(s.session_id)}</td><td>${esc(s.job)}</td><td>${esc(DECISION_CN[s.overall] || s.overall)}</td><td>${s.duration_s} 秒</td><td class="small">${s.failed_steps.map(esc).join('、') || '全部完成'}</td></tr>`).join('');
+  const recent = d.recent.map(s => `<tr><td class="small nowrap">${esc(s.at)}</td><td class="small">${esc(s.session_id)}</td><td>${esc(s.job)}</td><td>${esc(s.outcome ? OUTCOME_CN[s.outcome] || s.outcome : DECISION_CN[s.overall] || s.overall)}</td><td>${s.duration_s} 秒</td><td class="small">${s.failed_steps.map(esc).join('、') || '全部完成'}</td></tr>`).join('');
   const fb = d.feedback.recent.map(f => `<tr><td class="small nowrap">${esc(f.at)}</td><td class="small">${esc(f.session_id)}</td><td>${esc(f.rating)}</td><td class="small">${f.steps.map(esc).join('、')}</td><td class="small">${esc(f.note)}</td></tr>`).join('');
   $('#out').innerHTML = `
   <div class="kpis">
@@ -34,7 +35,7 @@ async function load() {
     <div class="kpi"><span class="muted">用时中位数</span><b>${d.median_duration_s ?? '—'} 秒</b></div>
     <div class="kpi"><span class="muted">反馈</span><b>${d.feedback_n}</b></div>
   </div>
-  <p class="small">综合结论：${dist(d.overall)}<br>反馈：${Object.entries(d.feedback.by_rating).map(([k, v]) => `${esc(k)} ${v}`).join('，') || '暂无'}<br><span class="muted">时间：${esc(d.from)} — ${esc(d.to)}</span></p>
+  <p class="small">综合判断：${Object.entries(d.outcome || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(OUTCOME_CN[k] || k)} ${v}`).join('，') || '—'}<br>反馈：${Object.entries(d.feedback.by_rating).map(([k, v]) => `${esc(k)} ${v}`).join('，') || '暂无'}<br><span class="muted">时间：${esc(d.from)} — ${esc(d.to)}</span></p>
   <h3>各步骤（完成率从低到高，越靠前越需要优化）</h3>
   <table><tr><th>步骤</th><th>次数</th><th>完成率</th><th>结果分布</th><th>用时中位数</th><th>最常卡住的提示</th><th>反馈"有问题"</th></tr>${steps}</table>
   <p class="muted small">"最常卡住的提示"按提示出现的累计时长排序：一直出现同一条提示，说明这一步的要求说不清、太难做，或判定规则太严。</p>

@@ -968,7 +968,7 @@ function scopeChecks(scope) {
   if (scope === 'hair') return ['hair'];
   if (scope === 'nails') return ['nails'];
   const kind = scope === 'hands' ? 'hand' : 'body';
-  return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (d.views || []).some(v => VIEWS[v]?.kind === kind)).map(([c]) => c);
+  return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (c === 'liveness' && scope === 'hands') || (d.views || []).some(v => VIEWS[v]?.kind === kind)).map(([c]) => c);
 }
 
 function makeSteps(job, scope = 'all') {
@@ -1241,7 +1241,7 @@ async function endRun() {
   S.analysesDone = analyses;
   let arb;
   try {
-    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, checks: scopeChecks(S.scope), frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
+    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, checks: scopeChecks(S.scope), frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload(), steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note })) }) });
     arb = await r.json();
     if (!r.ok) throw new Error(arb.error || r.statusText);
   } catch (e) { arb = { error: `仲裁服务不可用：${e.message || e}`, by_view: {}, by_check: {} }; }
@@ -1263,6 +1263,7 @@ function sessionRecord() {
     steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note, ms: r.ms, first_ok_ms: r.first_ok_ms, hints: r.hints || [] })),
     checks: Object.fromEntries(Object.entries(S.arb.by_check || {}).map(([c, e]) => [c, { decision: e.decision, mode: e.mode }])),
     overall: worst(rows.filter(r => r.mode === 'judge').map(r => r.decision)),
+    summary: S.arb.summary ? { outcome: S.arb.summary.outcome, groups: Object.fromEntries(S.arb.summary.groups.map(g => [g.id, g.record_only ? 'record_only' : g.decision])), conditions: S.arb.summary.conditions.map(c => c.check), manual: S.arb.summary.manual.length } : null,
     server_errors: (S.analysesDone || []).filter(a => a.errors?.length).map(a => `${a.view}: ${a.errors.join('；')}`).slice(0, 10),
     validation: v.validation ? { subject_id: v.subject_id, truth: v.truth, meta: v.meta } : null,
   };
@@ -1401,6 +1402,23 @@ function requirementRows() {
   return rows;
 }
 
+// 肢体正常综合判断（服务端 limbcheck/summary.py，汇总方式见 configs/summary.yaml）：总结论、入职前整改、需人工确认的项目、各模块结论
+const OUTCOME_CLS = { pass: 'ok', conditional: 'cond', redo: 'warn', manual: 'warn', fail: 'bad', none: 'none' };
+function summarySection(overall) {
+  const s = S.arb.summary;
+  if (!s) return `<p>综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>`;
+  const list = (title, xs, f) => xs.length ? `<p class="v-sub"><b>${title}</b></p><ul>${xs.map(x => `<li>${f(x)}</li>`).join('')}</ul>` : '';
+  const gName = g => g.record_only ? ['只记录', 'muted'] : g.decision === 'conditional' ? ['入职前需整改', 's-review'] : [DECISION_CN[g.decision] || g.decision, DECISION_CLS[g.decision] || ''];
+  return `<div class="verdict v-${OUTCOME_CLS[s.outcome] || 'none'}">
+    <div class="v-head"><span class="muted">肢体正常综合判断</span><b>${esc(s.name)}</b></div>
+    <p class="v-text">${esc(s.text)}</p>
+    ${list('不符合：', s.failed, x => `${esc(x.group)}：${esc(x.reason)}`)}
+    ${list('入职前需整改：', s.conditions, x => `${esc(x.text)}${x.confirmed ? '' : '（疑似，入职时核对）'}<span class="muted small">：${esc(x.reason)}</span>`)}
+    ${list('请人工确认：', s.manual, x => `${esc(x.group)}：${esc(x.reason)}`)}
+    ${list('需重做：', s.redo || [], x => `${esc(x.group)}：${esc(x.reason)}`)}
+    <div class="v-groups">${s.groups.map(g => { const [t, c] = gName(g); return `<span>${esc(g.name)}：<b class="${c}">${esc(t)}</b></span>`; }).join('')}</div>
+  </div>`;
+}
 const shortReason = t => String(t || '').replace(/^只记录（[^）]*）；按判定模式应为 \w+：/, '');
 function decisionCell(r) {
   if (r.mode === 'record_only') return `<span class="muted">只记录</span>${r.shadow ? `<br><span class="muted small">按判定模式应为：${DECISION_CN[r.shadow]}</span>` : ''}`;
@@ -1438,7 +1456,8 @@ function renderReport() {
   el.innerHTML = `
   <h2>检测报告</h2>
   <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)}${S.scope && S.scope !== 'all' ? ` · 检测范围：${SCOPE_CN[S.scope] || S.scope}` : ''} · 性别（招聘方填写）：${GENDER_CN[S.gender] || '未填写'} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
-  <p>能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
+  ${summarySection(overall)}
+  <p class="muted small">能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。</p>
   ${arb.error ? `<p class="s-fail">${esc(arb.error)}</p>` : ''}
   <h3>岗位要求核对</h3>
   <p class="muted small">岗位要求：${(job.requirements || []).map(esc).join('；')}。标“只记录”的项目在没有书面岗位依据前不作判定，只保存结果用于评估。</p>

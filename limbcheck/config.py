@@ -106,6 +106,7 @@ def web_config(thresholds: dict | None = None, profiles: dict | None = None) -> 
         "appearance_checks": list(APPEARANCE_CHECKS),
         "policies": {"marks": load_policy("marks"), "hair": load_policy("hair"), "nails": load_policy("nails")},
         "strictness": _load_yaml(config_dir() / "strictness.yaml"),
+        "summary": _load_yaml(config_dir() / "summary.yaml"),
     }
 
 

@@ -1148,5 +1148,109 @@
         }
       }
     }
+  },
+  "summary": {
+    "version": 1,
+    "groups": [
+      {
+        "id": "limbs",
+        "name": "四肢",
+        "checks": [
+          "limbs",
+          "coordination"
+        ],
+        "steps": [
+          "arms",
+          "cross_touch",
+          "legs",
+          "march",
+          "squat"
+        ]
+      },
+      {
+        "id": "hands",
+        "name": "手部",
+        "checks": [
+          "fingers"
+        ],
+        "steps": [
+          "palms",
+          "backs",
+          "flex",
+          "pinch"
+        ]
+      },
+      {
+        "id": "nails",
+        "name": "指甲",
+        "checks": [
+          "nails"
+        ],
+        "steps": [
+          "nails"
+        ]
+      },
+      {
+        "id": "hair",
+        "name": "头发",
+        "checks": [
+          "hair"
+        ],
+        "steps": [
+          "hair"
+        ]
+      },
+      {
+        "id": "marks",
+        "name": "纹身 / 疤痕",
+        "checks": [
+          "tattoo",
+          "scar"
+        ],
+        "steps": [
+          "neck",
+          "arms_close"
+        ]
+      },
+      {
+        "id": "liveness",
+        "name": "活体 / 防作弊",
+        "checks": [
+          "liveness"
+        ],
+        "steps": [
+          "challenge"
+        ]
+      }
+    ],
+    "fixable": {
+      "nails": "入职前需卸除美甲、修剪指甲"
+    },
+    "outcomes": {
+      "fail": {
+        "name": "不符合",
+        "text": "有项目明确不符合岗位要求；候选人可申诉或申请线下复核"
+      },
+      "manual": {
+        "name": "待人工确认",
+        "text": "系统不能确定的项目请人工查看证据后确认"
+      },
+      "redo": {
+        "name": "需重做",
+        "text": "部分画面不清楚或姿势不到位，请重新检测相关步骤"
+      },
+      "conditional": {
+        "name": "有条件通过",
+        "text": "其余项目均满足，入职前需完成整改"
+      },
+      "pass": {
+        "name": "通过",
+        "text": "各项均满足岗位要求"
+      },
+      "none": {
+        "name": "未评估",
+        "text": "没有按判定模式评估的项目"
+      }
+    }
   }
 }

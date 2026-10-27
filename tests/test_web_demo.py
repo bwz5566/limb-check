@@ -241,3 +241,12 @@ def test_nails_without_l2_goes_to_review(server):
     assert e["decision"] == "review" and "大模型" in e["notes"][0]
     l2 = {"nails": CheckResult("nails", "L2:x", False, 0.9).to_dict()}
     assert server.arbitrate_session("precision", [{"view": "nails_close", "l1": l1, "l2": l2}], checks=["nails"])["by_check"]["nails"]["decision"] == "pass"
+
+
+def test_arbitrate_session_summary(server):
+    ok = CheckResult("fingers", "L2:x", False, 0.95).to_dict()
+    steps = [{"id": "palms", "title": "双手掌心", "status": "pass"}, {"id": "flex", "title": "握拳 → 张开", "status": "timeout", "note": "超时"}]
+    out = server.arbitrate_session("precision", [{"view": "palms", "l2": {"fingers": ok}}], checks=["fingers"], steps=steps)
+    s = out["summary"]
+    assert s["outcome"] == "manual" and any("握拳" in m["reason"] for m in s["manual"]) and [g["id"] for g in s["groups"]] == ["hands"]
+    assert server.WEB_CONFIG["summary"]["fixable"]["nails"]

@@ -61,6 +61,7 @@ from limbcheck.arbiter import arbitrate, worst  # noqa: E402
 from limbcheck.core import CHECK_DEFS, VIEW_CN, VIEW_CHECKS, CheckResult  # noqa: E402
 from limbcheck.marks import session_review, set_policy  # noqa: E402
 from limbcheck.nails import nails_policy, set_nails_policy  # noqa: E402
+from limbcheck.summary import set_summary_config, summarize  # noqa: E402
 from limbcheck.motion import analyze as analyze_motion, motion_result  # noqa: E402
 from limbcheck.strictness import arbitration_cfg, default_level, levels, set_config  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
@@ -71,6 +72,7 @@ WEB_CONFIG = json.loads((ROOT / "config.generated.json").read_text(encoding="utf
 JOBS = {j["id"]: j for j in WEB_CONFIG["jobs"]}
 set_policy(WEB_CONFIG["policies"]["marks"])      # 录用标准、严格度与网页配置同源（由 configs/ 生成）
 set_nails_policy(WEB_CONFIG["policies"]["nails"])
+set_summary_config(WEB_CONFIG["summary"])
 set_config(WEB_CONFIG["strictness"])
 DECISION_OF_ACTION = {"review": "review", "clean": "redo", "pass": "pass"}
 
@@ -296,13 +298,14 @@ def summarize_records(rows: list[dict], job: str | None = None) -> dict:
         "from": min((s.get("server_at", "") for s in ss), default=None), "to": max((s.get("server_at", "") for s in ss), default=None),
         "jobs": dict(Counter((s.get("job") or {}).get("name") or "?" for s in ss)),
         "overall": dict(Counter(s.get("overall") or "none" for s in ss)),
+        "outcome": dict(Counter((s.get("summary") or {}).get("outcome") or "none" for s in ss)),
         "median_duration_s": med([s["duration_ms"] for s in ss if s.get("duration_ms")]),
         "steps": step_rows, "checks": {c: dict(v) for c, v in checks.items()},
         "feedback": {"by_rating": {FEEDBACK_CN.get(k, k): v for k, v in Counter(f.get("rating") for f in feedback).items()},
                      "recent": [{"session_id": f["session_id"], "at": f.get("server_at"), "rating": FEEDBACK_CN.get(f.get("rating"), f.get("rating")),
                                  "steps": f.get("steps") or [], "note": f.get("note") or ""} for f in feedback[-30:][::-1]]},
         "recent": [{"session_id": s["session_id"], "at": s.get("server_at"), "job": (s.get("job") or {}).get("name"),
-                    "overall": s.get("overall"), "duration_s": round((s.get("duration_ms") or 0) / 1000),
+                    "overall": s.get("overall"), "outcome": (s.get("summary") or {}).get("outcome"), "duration_s": round((s.get("duration_ms") or 0) / 1000),
                     "failed_steps": [st.get("title") or st["id"] for st in s.get("steps") or [] if st.get("status") != "pass"]}
                    for s in recent],
     }
@@ -318,11 +321,12 @@ def mode_of(job: dict | None, check: str) -> str:
 
 
 def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None,
-                      checks: list[str] | None = None) -> dict:
+                      checks: list[str] | None = None, steps: list[dict] | None = None) -> dict:
     """frames: [{view, l1: {check: CheckResult dict}, l1_server: {...}, l2: {check: CheckResult dict}}]。
     l1_server 是服务端对高清截图的判定（/api/analyze），有就用它；没有（服务端未启用或失败）才用浏览器端 l1。
     checks：本次检测范围内的检测项（网页上选"只测身体 / 只测手部"时），范围外的不因缺视角判"需复核"。
     motion：动作步骤的关键点序列（格式见 limbcheck/motion.py），用于"肢体协调性"。
+    steps：动作步骤的完成情况 [{id, title, status, note}]，用于综合判断（limbcheck/summary.py，configs/summary.yaml）。
     与离线评测一致：按最后一次尝试仲裁（attempt = max_redo），另给出首次尝试的结论供统计重做率。"""
     job = JOBS.get(job_id)
     level = strictness_of(job, strictness)
@@ -396,7 +400,8 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
             by_check["coordination"] = {"mode": mode, "views": {}, "decision": final.decision, "shadow": final.shadow,
                                         "notes": [], "reason": final.reason, "l1": r.to_dict(), "motion": analysis}
     overall = worst([e["decision"] for e in by_check.values() if e["mode"] == "judge"])
-    return {"by_view": by_view, "by_check": by_check, "overall": overall, "job": job_id, "strictness": level,
+    summary = summarize(by_check, steps, checks, {c: mode_of(job, c) for c in CHECK_DEFS["checks"]})
+    return {"by_view": by_view, "by_check": by_check, "overall": overall, "summary": summary, "job": job_id, "strictness": level,
             "prompt_version": prompt_version()}
 
 
@@ -492,7 +497,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
-            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"), req.get("checks"))
+            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"), req.get("checks"),
+                                    req.get("steps"))
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             return self._json(200, out)
         return self._json(404, {"error": "not found"})
