@@ -39,6 +39,9 @@
         <select id="strictness"></select>
       </label>
       <p id="strictnessDesc" class="muted small"></p>
+      <label class="field">检测范围（分模块测试用）
+        <select id="scope"><option value="all">全部步骤</option><option value="body">只测身体（四肢、协调性）</option><option value="hands">只测手部</option></select>
+      </label>
       <label class="field inline"><input type="checkbox" id="voice" checked> 语音引导</label>
       <label class="field inline"><input type="checkbox" id="useServer" checked> 服务端判定（高清截图交服务端模型判定，浏览器只做引导）</label>
       <label class="field inline"><input type="checkbox" id="useVlm" checked> 启用大模型复核（需在服务端配置）</label>

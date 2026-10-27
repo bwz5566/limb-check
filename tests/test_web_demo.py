@@ -215,3 +215,12 @@ def test_records_endpoints(server, base_url, tmp_path, monkeypatch):
     with urllib.request.urlopen(base_url + "/api/records/summary?days=7", timeout=10) as r:
         d = json.loads(r.read())
     assert d["sessions"] == 1 and d["dir"] == str(tmp_path)
+
+
+def test_session_scope_skips_out_of_scope_required_views(server):
+    limbs_ok = CheckResult("limbs", "L1:mediapipe-web", False, 0.95).to_dict()
+    frames = [{"view": "stand", "l1": {"limbs": limbs_ok}}]
+    full = server.arbitrate_session("line", frames)
+    assert full["by_check"]["fingers"]["decision"] == "review"           # 全流程：没拍手 → 手部需复核
+    body = server.arbitrate_session("line", frames, checks=["limbs", "tattoo", "scar", "hair", "coordination"])
+    assert "fingers" not in body["by_check"] and body["overall"] == "pass"

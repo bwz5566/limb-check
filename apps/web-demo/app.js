@@ -889,8 +889,16 @@ function nextRound(step, st, now) {
   return st.failed ? { done: true, status: 'review', note: `${st.failed} 轮未在时限内完成，疑似回放或配合不足` } : { done: true };
 }
 
-function makeSteps(job) {
-  let ids = job.steps.filter(id => STEP_LIB[id]);
+// 检测范围：全部 / 只测身体（需要姿态、不需要手部模型的步骤）/ 只测手部；分模块测试时不用每次走完全流程
+const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands'), hands: s => s.needs.includes('hands') && !s.needs.includes('pose') };
+// 范围内的检测项：有视角属于这一类（手部视角 / 身体视角）的检测项；协调性两类都有
+function scopeChecks(scope) {
+  if (!scope || scope === 'all') return null;
+  return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (d.views || []).some(v => (VIEWS[v]?.kind === 'hand') === (scope === 'hands'))).map(([c]) => c);
+}
+
+function makeSteps(job, scope = 'all') {
+  let ids = job.steps.filter(id => STEP_LIB[id] && (SCOPE_STEP[scope] || SCOPE_STEP.all)(STEP_LIB[id]));
   const unknown = job.steps.filter(id => !STEP_LIB[id]);
   if (unknown.length) console.warn('岗位配置里有网页端未实现的步骤，已跳过：', unknown);
   const hasChallenge = ids.includes('challenge');
@@ -1159,7 +1167,7 @@ async function endRun() {
   S.analysesDone = analyses;
   let arb;
   try {
-    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
+    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, checks: scopeChecks(S.scope), frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
     arb = await r.json();
     if (!r.ok) throw new Error(arb.error || r.statusText);
   } catch (e) { arb = { error: `仲裁服务不可用：${e.message || e}`, by_view: {}, by_check: {} }; }
@@ -1174,7 +1182,7 @@ async function endRun() {
 function sessionRecord() {
   const rows = requirementRows(), v = readValidation();
   return {
-    session_id: S.sessionId, at: S.startedAt, job: { id: S.job.id, name: S.job.name }, strictness: S.strictness,
+    session_id: S.sessionId, at: S.startedAt, job: { id: S.job.id, name: S.job.name }, strictness: S.strictness, scope: S.scope || 'all',
     duration_ms: S.durationMs, retakes: S.retakes || 0,
     client: { ua: navigator.userAgent.slice(0, 200), video: { w: W, h: H }, fps: perfSummary().fps, delegate },
     config: { server_pipeline: serverJudgeOn() ? VLM.server_judge.pipeline : null, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null, thresholds_version: TH.version, prompt_version: WEB.prompt_version, fast: FAST },
@@ -1289,9 +1297,11 @@ function buildExport() {
 function requirementRows() {
   const arb = S.arb, rows = [];
   const stepDecision = ids => { const rs = ids.map(id => S.results.find(r => r.id === id)).filter(Boolean); return rs.length ? worst(rs.map(r => (r.status === 'pass' ? 'pass' : 'review'))) : null; };
+  const inScope = scopeChecks(S.scope);
   for (const [c, d] of Object.entries(CHECKS)) {
     if (!(d.views || []).length) continue;
     const mode = modeOf(c); if (mode === 'off') continue;
+    if (inScope && !inScope.includes(c)) continue;      // 只测身体 / 只测手部时，范围外的项目不列
     const a = arb.by_check?.[c];
     const reasons = Object.entries(arb.by_view || {}).filter(([, r]) => r[c] && r[c].shadow === a?.shadow).map(([v, r]) => `${VIEWS[v].name}：${shortReason(r[c].reason)}`);
     const notes = a?.notes || [];
@@ -1353,7 +1363,7 @@ function renderReport() {
 
   el.innerHTML = `
   <h2>检测报告</h2>
-  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
+  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)}${S.scope && S.scope !== 'all' ? ` · 检测范围：${S.scope === 'body' ? '只测身体' : '只测手部'}` : ''} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
   <p>能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
   ${arb.error ? `<p class="s-fail">${esc(arb.error)}</p>` : ''}
   <h3>岗位要求核对</h3>
@@ -1510,6 +1520,7 @@ async function init() {
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
   if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
+  if (['all', 'body', 'hands'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';
     $('#vlmStatus').className = 'tag ' + (VLM.vlm ? 'ok' : '');
@@ -1545,7 +1556,8 @@ async function init() {
 
 async function start() {
   S.job = JOBS[$('#job').value];
-  S.steps = makeSteps(S.job);
+  S.scope = $('#scope').value;
+  S.steps = makeSteps(S.job, S.scope);
   $('#stepList').innerHTML = S.steps.map(s => `<li>${esc(s.title)}</li>`).join('');
   if (!(await openCamera())) return;
   $('#setup').hidden = true; $('#skipBtn').hidden = false;

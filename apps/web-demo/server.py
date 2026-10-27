@@ -308,9 +308,11 @@ def mode_of(job: dict | None, check: str) -> str:
     return c.get("mode", "judge")
 
 
-def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None) -> dict:
+def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None,
+                      checks: list[str] | None = None) -> dict:
     """frames: [{view, l1: {check: CheckResult dict}, l1_server: {...}, l2: {check: CheckResult dict}}]。
     l1_server 是服务端对高清截图的判定（/api/analyze），有就用它；没有（服务端未启用或失败）才用浏览器端 l1。
+    checks：本次检测范围内的检测项（网页上选"只测身体 / 只测手部"时），范围外的不因缺视角判"需复核"。
     motion：动作步骤的关键点序列（格式见 limbcheck/motion.py），用于"肢体协调性"。
     与离线评测一致：按最后一次尝试仲裁（attempt = max_redo），另给出首次尝试的结论供统计重做率。"""
     job = JOBS.get(job_id)
@@ -356,7 +358,7 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
     seen = {fr["view"] for fr in frames}
     for c, d in CHECK_DEFS["checks"].items():
         miss = [v for v in d.get("required_views", []) if v not in seen]
-        if miss and mode_of(job, c) != "off":
+        if miss and mode_of(job, c) != "off" and (checks is None or c in checks):
             by_check.setdefault(c, {"mode": mode_of(job, c), "views": {}, "decision": None, "shadow": None, "notes": []})
             add(c, "review", f"未采集到{'、'.join(VIEW_CN[v] for v in miss)}，无法确认手掌、手背均正常")
     # 纹身 / 疤痕的跨视角规则（手指纹身 ≥ 2 处、手背多处、疤痕搭配纹身）和清洁提醒
@@ -476,7 +478,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
-            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"))
+            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"), req.get("checks"))
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             return self._json(200, out)
         return self._json(404, {"error": "not found"})

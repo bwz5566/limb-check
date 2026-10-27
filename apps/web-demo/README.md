@@ -58,7 +58,8 @@ VLM_MODEL=qwen3.8-max
 
 ## 流程
 
-步骤由岗位画像（`configs/job_profiles/*.yaml` 的 `steps`）决定，例如精密装配：
+步骤由岗位画像（`configs/job_profiles/*.yaml` 的 `steps`）决定。开始页面的"检测范围"可以选只测身体或只测手部（分模块测试用，也可用网址参数 `?scope=body` / `?scope=hands`），
+范围外的检测项不列入报告，也不会因为没拍到而判"需复核"。例如精密装配：
 
 | 步骤 | 采集的视角 | 用于 |
 | --- | --- | --- |
