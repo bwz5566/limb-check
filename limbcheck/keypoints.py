@@ -31,7 +31,10 @@ MP33 = {
     "left_shoulder": 11, "right_shoulder": 12, "left_elbow": 13, "right_elbow": 14,
     "left_wrist": 15, "right_wrist": 16, "left_hip": 23, "right_hip": 24,
     "left_knee": 25, "right_knee": 26, "left_ankle": 27, "right_ankle": 28,
+    "left_heel": 29, "right_heel": 30, "left_foot_index": 31, "right_foot_index": 32,
 }
+# COCO-WholeBody 133 点：身体 17 点 + 双脚（17 左大脚趾、19 左脚跟、20 右大脚趾、22 右脚跟）
+WB133_BODY = {**COCO17, "left_foot_index": 17, "left_heel": 19, "right_foot_index": 20, "right_heel": 22}
 # COCO-WholeBody 133 点中的双手（受检者本人的左右）
 WB133_LEFT_HAND = slice(91, 112)
 WB133_RIGHT_HAND = slice(112, 133)
@@ -43,6 +46,8 @@ LIMBS = {
     "right_leg": ("right_hip", "right_knee", "right_ankle"),
 }
 LIMB_CN = {"left_arm": "左臂", "right_arm": "右臂", "left_leg": "左腿", "right_leg": "右腿"}
+FEET = {"left_foot": ("left_heel", "left_foot_index"), "right_foot": ("right_heel", "right_foot_index")}
+FOOT_CN = {"left_foot": "左脚", "right_foot": "右脚"}
 
 
 @dataclass

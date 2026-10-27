@@ -34,6 +34,11 @@ def load_thresholds(path: str | Path | None = None) -> dict:
     return _load_yaml(Path(path) if path else config_dir() / "thresholds.yaml")
 
 
+def load_policy(name: str = "marks", path: str | Path | None = None) -> dict:
+    """录用标准（configs/policies/<name>.yaml）：marks（纹身 / 疤痕 / 污渍）、hair（发色 / 发长）、nails（指甲）。"""
+    return _load_yaml(Path(path) if path else config_dir() / "policies" / f"{name}.yaml")
+
+
 def load_acceptance(path: str | Path | None = None) -> dict:
     return _load_yaml(Path(path) if path else config_dir() / "acceptance.yaml")
 
@@ -56,6 +61,11 @@ def normalize_profile(p: dict) -> dict:
             warnings.warn(f"岗位 {p.get('id')} 的 {c} 设为 judge 但没有书面依据（basis），已降级为 record_only")
             checks[c]["mode"] = "record_only"
     p["checks"] = checks
+    from .strictness import default_level, levels
+
+    p.setdefault("strictness", default_level())
+    if p["strictness"] not in levels():
+        raise ValueError(f"岗位 {p.get('id')} 的 strictness 只能是 {levels()}，实际为 {p['strictness']}")
     p.setdefault("steps", [])
     p.setdefault("requirements", [])
     return p
@@ -94,6 +104,9 @@ def web_config(thresholds: dict | None = None, profiles: dict | None = None) -> 
         "thresholds": th,
         "jobs": jobs,
         "appearance_checks": list(APPEARANCE_CHECKS),
+        "policies": {"marks": load_policy("marks"), "hair": load_policy("hair"), "nails": load_policy("nails")},
+        "strictness": _load_yaml(config_dir() / "strictness.yaml"),
+        "summary": _load_yaml(config_dir() / "summary.yaml"),
     }
 
 

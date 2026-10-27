@@ -50,6 +50,8 @@ def _pipeline(args, use_vlm: bool = True):
                        "use_schema": bool(args.vlm_schema)}
     if not use_vlm or getattr(args, "no_vlm", False):
         over["vlm"] = "none"
+    if getattr(args, "strictness", None):
+        over["strictness"] = args.strictness
     th = load_thresholds(getattr(args, "thresholds", None))
     return Pipeline.from_spec(spec, th, _profile(getattr(args, "job", None)), **over), th
 
@@ -118,6 +120,51 @@ def cmd_score(args):
     info = json.loads(info_path.read_text(encoding="utf-8")) if info_path.exists() else {"name": run_dir.name, "pipeline": pred_path.stem}
     _write_report(data_dir, run_dir, preds, info, args.acceptance)
     print(f"报告：{run_dir / 'report.md'}")
+
+
+def cmd_calibrate(args):
+    from .calibrate import calibrate, render
+    from .config import load_thresholds
+    from .dataset import load_samples, read_jsonl
+
+    data_dir, run_dir = Path(args.data), Path(args.run)
+    pred_path = Path(args.predictions) if args.predictions else run_dir / "predictions.jsonl"
+    preds = {p["id"]: p for p in read_jsonl(pred_path)}
+    if not preds:
+        sys.exit(f"{pred_path} 为空")
+    th = load_thresholds(args.thresholds)
+    rep = calibrate(load_samples(data_dir), preds, th.get("arbitration", {}),
+                    args.checks.split(",") if args.checks else None,
+                    args.levels.split(",") if args.levels else None, _profile(args.job))
+    md = render(rep)
+    out = Path(args.out) if args.out else run_dir / "calibration.md"
+    out.write_text(md, encoding="utf-8")
+    out.with_suffix(".json").write_text(json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(md)
+    print(f"\n已写入 {out}")
+
+
+def cmd_motion(args):
+    """重新分析网页 demo 导出报告里的动作序列（改了 motion 阈值后不用重新采集）。"""
+    from .config import load_thresholds
+    from .motion import LABEL_CN, analyze, motion_result
+
+    th = load_thresholds(args.thresholds).get("motion")
+    files = [f for p in args.reports for f in (sorted(Path(p).glob("*.json")) if Path(p).is_dir() else [Path(p)])]
+    out = []
+    for f in files:
+        rep = json.loads(f.read_text(encoding="utf-8"))
+        a = analyze(rep.get("motion"), th)
+        r = motion_result(a, th)
+        out.append({"file": str(f), "session_id": rep.get("session_id"), "analysis": a, "result": r.to_dict() if r else None})
+        verdict = "未采集到动作序列" if r is None else "无法判断" if r.positive is None else "发现问题" if r.positive else "正常"
+        print(f"\n## {f.name}（{rep.get('session_id', '')}）：{verdict}")
+        for x in a:
+            notes = "；".join(f"{LABEL_CN[y['label']]}：{y['note']}" for y in x["findings"]) or ("正常" if x["verdict"] == "normal" else "帧数不足")
+            print(f"- {x['title']}（{x['frames']} 帧）：{notes}  {json.dumps(x['metrics'], ensure_ascii=False)}")
+    if args.out:
+        Path(args.out).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n已写入 {args.out}")
 
 
 def cmd_compare(args):
@@ -302,6 +349,7 @@ def _add_pipeline_args(p, vlm: bool = True):
     p.add_argument("--segmenter", help="覆盖分割模型（mpseg / none）")
     p.add_argument("--thresholds", help="阈值文件，默认 configs/thresholds.yaml")
     p.add_argument("--job", default="precision", help="岗位画像（决定启用哪些检测项、record_only），all 表示全部按判定模式")
+    p.add_argument("--strictness", help="筛选严格度 strict / standard / lenient（默认取岗位画像，见 configs/strictness.yaml）")
     if vlm:
         _add_vlm_args(p)
         p.add_argument("--no-vlm", action="store_true", help="不调用 L2")
@@ -338,6 +386,23 @@ def main(argv=None):
     p.add_argument("--predictions", help="预测文件，默认 <run>/predictions.jsonl；浏览器端结果用 <data>/predictions/demo_browser.jsonl")
     p.add_argument("--acceptance", default=None)
     p.set_defaults(func=cmd_score)
+
+    p = sub.add_parser("calibrate", help="按严格度校准 high_conf / auto_fail_conf（模型更换或微调后用，不重新调用模型）")
+    p.add_argument("--data", required=True, help="带标注的验证集")
+    p.add_argument("--run", required=True, help="在该数据集上 eval 的运行目录")
+    p.add_argument("--predictions", help="预测文件，默认 <run>/predictions.jsonl")
+    p.add_argument("--checks", help="只校准这些检测项，逗号分隔")
+    p.add_argument("--levels", help="只校准这些严格度，逗号分隔")
+    p.add_argument("--job", default="precision", help="岗位画像（取检测项参数，如疤痕的 fine_work）")
+    p.add_argument("--thresholds", help="阈值文件，默认 configs/thresholds.yaml")
+    p.add_argument("-o", "--out", help="输出 Markdown，默认 <run>/calibration.md（同名 .json 为完整网格）")
+    p.set_defaults(func=cmd_calibrate)
+
+    p = sub.add_parser("motion", help="重新分析网页 demo 报告里的动作序列（肢体协调性），改了 motion 阈值后用")
+    p.add_argument("reports", nargs="+", help="导出的报告 JSON（文件或目录）")
+    p.add_argument("--thresholds", help="阈值文件，默认 configs/thresholds.yaml")
+    p.add_argument("-o", "--out", help="把完整分析写入 JSON")
+    p.set_defaults(func=cmd_motion)
 
     p = sub.add_parser("compare", help="多次运行横向对比")
     p.add_argument("runs", nargs="+")

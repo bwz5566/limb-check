@@ -3,7 +3,7 @@ name: mediapipe-skin
 keypoints: {type: mediapipe}
 contour: {type: skin}
 segmenter: {type: mpseg}
-l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, limbs.contour, hair.color]
 vlm: env            # 读 VLM_BASE_URL / VLM_MODEL / VLM_API_KEY；不需要 L2 时写 none
 mirrored: false     # 图片是否为自拍镜像画面（网页 demo 导出的是未镜像原始画面）
 plugins: []         # 自定义节点所在模块，如 [mycompany.limbcheck_ext]

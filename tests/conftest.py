@@ -25,8 +25,14 @@ def hand_points(side: str = "right", facing: str = "back", center=(300.0, 420.0)
     return pts * scale + np.asarray(center)
 
 
-def make_hand(side="right", facing="back", center=(300.0, 420.0), scale=120.0, score=0.95) -> Hand:
-    return Hand(pts=hand_points(side, facing, center, scale), score=score, side=side, side_score=0.95)
+def make_hand(side="right", facing="back", center=(300.0, 420.0), scale=120.0, score=0.95, spread=False) -> Hand:
+    """spread=True：四指向外展开（掌心 / 手背视角要求五指分开，像素上才能逐指确认）。"""
+    pts = hand_points(side, facing, center, scale)
+    if spread:
+        sign = 1 if (side == "left") != (facing == "palm") else -1      # 与 hand_points 的水平镜像一致
+        for ids, k in (((6, 7, 8), -1.6), ((14, 15, 16), 1.6), ((18, 19, 20), 2.6)):
+            pts[list(ids), 0] += -sign * k * 0.12 * scale * np.array([0.6, 0.85, 1.0])
+    return Hand(pts=pts, score=score, side=side, side_score=0.95)
 
 
 def draw_hand(pts: np.ndarray, shape=(560, 640), skip: tuple[str, ...] = (), skin=(205, 160, 135), bg=(250, 250, 250)) -> np.ndarray:
@@ -59,8 +65,26 @@ def make_body(arm_ratio: float = 1.0, scale: float = 100.0, offset=(300.0, 80.0)
         "left_hip": (0.35, 2.6), "right_hip": (-0.35, 2.6),
         "left_knee": (0.38, 3.8), "right_knee": (-0.38, 3.8),
         "left_ankle": (0.4, 4.9), "right_ankle": (-0.4, 4.9),
+        "left_heel": (0.38, 5.0), "right_heel": (-0.38, 5.0), "left_foot_index": (0.5, 5.15), "right_foot_index": (-0.5, 5.15),
     }
     return Body(joints={k: np.asarray(v, float) * scale + o for k, v in j.items()}, vis={k: vis for k in j}, score=vis)
+
+
+def draw_body(body: Body, shape=(640, 640), skip: tuple[str, ...] = ()) -> np.ndarray:
+    """按关键点画人体掩码（1 = 人）。skip 中的肢体（如 left_arm）只画近端段，模拟远端缺失而关键点仍"脑补"。"""
+    import cv2
+
+    from limbcheck.geometry import LIMB_SEGS
+
+    m = np.zeros(shape, np.uint8)
+    j = {k: tuple(np.round(v).astype(int)) for k, v in body.joints.items()}
+    cv2.fillPoly(m, [np.array([j["left_shoulder"], j["right_shoulder"], j["right_hip"], j["left_hip"]], np.int32)], 1)
+    for limb, segs in LIMB_SEGS.items():
+        for i, (a, b) in enumerate(segs):
+            if limb in skip and i == 1:
+                continue
+            cv2.line(m, j[a], j[b], 1, thickness=18)
+    return m
 
 
 class FakeKeypoints:

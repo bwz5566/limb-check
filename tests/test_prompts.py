@@ -4,9 +4,11 @@ from limbcheck.prompts import build_messages, build_user_prompt, l2_checks_for, 
 
 
 def test_checks_for_views():
-    assert l2_checks_for("palms") == ["fingers"]
+    assert l2_checks_for("palms") == ["fingers", "tattoo", "scar"]
     assert l2_checks_for("backs") == ["fingers", "nails", "tattoo", "scar"]
-    assert l2_checks_for("stand", ["limbs", "hair"]) == ["limbs", "hair"]
+    assert l2_checks_for("arms_out") == ["tattoo", "scar"] and l2_checks_for("neck") == ["tattoo", "scar"]
+    assert l2_checks_for("stand", ["limbs", "tattoo"]) == ["limbs", "tattoo"]
+    assert l2_checks_for("head_front") == ["hair"] and l2_checks_for("head_back") == ["hair"]
 
 
 def test_prompt_only_mentions_enabled_checks():

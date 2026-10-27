@@ -22,7 +22,7 @@ import numpy as np
 
 from .appearance import hair_result
 from .core import CheckResult, EXPECTED_HANDS
-from .geometry import fingers_result, limbs_result, nails_result
+from .geometry import fingers_result, limbs_contour_result, limbs_result, nails_result
 from .keypoints import assign_sides
 from .registry import register
 
@@ -92,34 +92,55 @@ def fingers_contour(ctx: L1Context) -> CheckResult | None:
         return None
     from .adapters.contour import contour_result
 
-    res, cov = ctx._timed("contour", lambda: contour_result(ctx.img, ctx.hands, ctx.contour, ctx.th["contour"], ctx.expected_hands))
+    res, cov = ctx._timed("contour", lambda: contour_result(ctx.img, ctx.hands, ctx.contour, ctx.th["contour"], ctx.expected_hands,
+                                                                     open_hand=ctx.view in ("palms", "backs")))
     ctx.detail["tip_coverage"] = cov
     return res
 
 
 @register("l1", "nails.delta_e", check="nails", needs="keypoints")
 def nails_delta_e(ctx: L1Context) -> CheckResult | None:
-    """指甲与手背肤色的 Lab 色差，只对手背朝向镜头的手判断。"""
+    """指甲与同一根手指中节皮肤的 Lab 色差，只对手背朝向镜头的手判断；按 configs/policies/nails.yaml 给出 verdict。"""
     if ctx.keypoints is None:
         return None
-    return nails_result(ctx.img, ctx.hands, ctx.th["nails"], "L1:deltaE", ctx.mirrored)
+    from .nails import l1_with_verdicts
+
+    return l1_with_verdicts(nails_result(ctx.img, ctx.hands, ctx.th["nails"], "L1:deltaE", ctx.mirrored))
+
+
+STRAIGHT_VIEWS = ("stand", "arms", "arms_up")     # 这些视角要求手臂（站立时还有腿）伸直
 
 
 @register("l1", "limbs.pose", check="limbs", needs="keypoints")
 def limbs_pose(ctx: L1Context) -> CheckResult | None:
-    """四肢关节可见度 + 左右肢段长度比。下肢只在正面站立视角评估。"""
+    """四肢关节可见度 + 左右肢段长度比 + 伸直姿势下的关节弯折。下肢只在正面站立视角评估。"""
     if ctx.keypoints is None:
         return None
     p = ctx.check_params("limbs")
     bodies = ctx.bodies
     return limbs_result(bodies[0] if bodies else None, ctx.th["pose"], f"L1:{ctx.keypoints.name}",
                         upper=p.get("upper", True), lower=p.get("lower", True) and ctx.view == "stand",
-                        image_size=(ctx.img.shape[1], ctx.img.shape[0]))
+                        image_size=(ctx.img.shape[1], ctx.img.shape[0]), straight=ctx.view in STRAIGHT_VIEWS)
+
+
+@register("l1", "limbs.contour", check="limbs", needs="segmenter")
+def limbs_contour(ctx: L1Context) -> CheckResult | None:
+    """人体分割掩码复核每段肢体：远端段落在人体外 → 疑似缺失（关键点脑补）。"""
+    if ctx.segmenter is None or ctx.keypoints is None or not ctx.bodies:
+        return None
+    from .adapters.segmenter import BACKGROUND
+
+    p = ctx.check_params("limbs")
+    mask = ctx._timed("segment", lambda: (ctx.segmenter.categories(ctx.img) != BACKGROUND).astype(np.uint8))
+    return limbs_contour_result(mask, ctx.bodies[0], ctx.th["pose"], "L1:contour-person",
+                                upper=p.get("upper", True), lower=p.get("lower", True) and ctx.view == "stand")
 
 
 @register("l1", "hair.color", check="hair", needs="segmenter")
 def hair_color(ctx: L1Context) -> CheckResult | None:
-    """头发分割 + Lab 彩度（粗略基线，只作记录和对比）。"""
+    """发色（头发分割 + 白平衡 + 按颜色归类）和发长（发尾相对肩线），标准见 configs/policies/hair.yaml。
+    男生长发规则用 ctx.meta["gender"]（招聘方填写）。"""
     if ctx.segmenter is None:
         return None
-    return ctx._timed("segment", lambda: hair_result(ctx.img, ctx.segmenter, ctx.th["hair"]))
+    body = ctx.bodies[0] if ctx.bodies else None
+    return ctx._timed("segment", lambda: hair_result(ctx.img, ctx.segmenter, body, ctx.meta))

@@ -120,7 +120,7 @@ L2 客户端（`limbcheck/vlm.py`）只依赖 OpenAI 兼容的 `/chat/completion
 | --- | --- | --- |
 | 昇腾 vLLM-Ascend（内网，推荐） | `http://<昇腾服务器>:8001/v1` | `Qwen/Qwen3-VL-8B-Instruct`、`Qwen/Qwen3-VL-32B-Instruct` |
 | RTX 6000 上的 vLLM | `http://<RTX 服务器>:8001/v1` | 同上 |
-| 阿里云百炼 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-vl-max` |
+| 阿里云百炼 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.7-plus` |
 | 本地 Ollama | `http://localhost:11434/v1` | `qwen2.5vl:7b` |
 
 - 网页 demo：启动 `server.py` 前设环境变量。离线评测：环境变量，或命令行 `--vlm-base-url --vlm-model`，或流水线配置里 `vlm: {base_url: ..., model: ...}`（支持 `${VAR}` 引用环境变量）。

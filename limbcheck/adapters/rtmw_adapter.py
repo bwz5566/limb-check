@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..keypoints import COCO17, WB133_LEFT_HAND, WB133_RIGHT_HAND, Body, Hand, body_from_array, mirror_body
+from ..keypoints import WB133_BODY, WB133_LEFT_HAND, WB133_RIGHT_HAND, Body, Hand, body_from_array, mirror_body
 
 HAND_MIN_SCORE = 0.3   # 手部 21 点平均置信度低于此值视为没看到这只手
 OTHER_SIDE = {"left": "right", "right": "left"}
@@ -45,7 +45,7 @@ class RTMWKeypoints:
 
     def bodies(self, img: np.ndarray) -> list[Body]:
         kpts, scores = self._wholebody(img)
-        out = [body_from_array(k, s, COCO17, self.name) for k, s in zip(kpts, scores)]
+        out = [body_from_array(k, s, WB133_BODY, self.name) for k, s in zip(kpts, scores)]
         if self.mirrored:
             out = [mirror_body(b) for b in out]
         out.sort(key=lambda b: b.score, reverse=True)

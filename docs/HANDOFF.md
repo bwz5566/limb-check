@@ -639,7 +639,7 @@ cd limb-check-demo
 python3 server.py              # Windows 双击 start.bat；macOS 双击 start.command
 # 浏览器打开 http://localhost:8000（必须经 server.py 访问，直接打开 index.html 会加载失败）
 
-# 启用 L2（OpenAI 兼容接口，默认对接阿里云百炼 qwen-vl-max）
+# 启用 L2（OpenAI 兼容接口，默认对接阿里云百炼 qwen3.7-plus）
 export VLM_API_KEY=<key>       # 必填才会启用；私有部署可填任意非空值
 export VLM_BASE_URL=http://<昇腾服务器>:8001/v1   # 切到昇腾 vLLM-Ascend
 export VLM_MODEL=Qwen/Qwen3-VL-32B-Instruct

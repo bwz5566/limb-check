@@ -54,6 +54,8 @@ def schema(checks: list[str] | None = None) -> dict:
                     "label": {"type": "string"},
                     "fingers": {"type": "array", "items": {"enum": list(FINGERS)}},
                     "value": {"type": ["number", "string", "null"]},
+                    "bbox": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                    "attrs": {"type": "object"},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "uncertain": {"type": "boolean"},
                 },
@@ -80,7 +82,7 @@ def build_user_prompt(view: str, checks: list[str]) -> str:
     return (
         f"图片：{p['view_desc'][view]}。\n"
         f"本次只评估：{names}。不要输出其他项目。\n"
-        f"按以下规则输出 items，每条都要有 check、part、label、confidence（0 到 1），可选 fingers、value、uncertain：\n{rules}\n"
+        f"按以下规则输出 items，每条都要有 check、part、label、confidence（0 到 1），可选 fingers、value、bbox、attrs、uncertain：\n{rules}\n"
         f"image_quality 为 good、fair 或 poor；reason 不超过 50 字。\n"
         f"输出格式示例：{json.dumps(example, ensure_ascii=False)}"
     )
@@ -120,6 +122,15 @@ def _extract_json(text: str):
     raise ValueError("JSON 对象不完整")
 
 
+def _bbox(v) -> list[float] | None:
+    if not isinstance(v, (list, tuple)) or len(v) != 4:
+        return None
+    try:
+        return [float(x) for x in v]
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_reply(text: str, checks: list[str]) -> tuple[dict | None, list[str]]:
     """解析并校验模型输出。返回 (清洗后的对象, 问题列表)。对象为 None 表示完全无法使用。"""
     rules = load_prompts()["checks"]
@@ -154,6 +165,8 @@ def parse_reply(text: str, checks: list[str]) -> tuple[dict | None, list[str]]:
             "label": label,
             "fingers": [f for f in raw.get("fingers") or [] if f in FINGERS],
             "value": raw.get("value"),
+            "bbox": _bbox(raw.get("bbox")),
+            "attrs": {k: v for k, v in raw["attrs"].items() if isinstance(k, str)} if isinstance(raw.get("attrs"), dict) else {},
             "confidence": conf,
             "uncertain": bool(raw.get("uncertain", False)),
         })
@@ -164,12 +177,15 @@ def parse_reply(text: str, checks: list[str]) -> tuple[dict | None, list[str]]:
     return {"items": items, "image_quality": quality, "reason": str(obj.get("reason", ""))[:200]}, errors
 
 
-def to_check_results(parsed: dict | None, checks: list[str], view: str, source: str, errors: list[str] | None = None) -> dict[str, CheckResult]:
+def to_check_results(parsed: dict | None, checks: list[str], view: str, source: str, errors: list[str] | None = None,
+                     meta: dict | None = None) -> dict[str, CheckResult]:
     """把解析后的 L2 输出转换为每个检测项的 CheckResult。
 
     - 任一条为"有问题"标签 → 有问题（uncertain 的有问题标签置信度减半，仍按有问题处理，宁可多送人工）；
     - 全部为"正常"标签且不 uncertain → 正常（逐手的项目要求每只手都返回了）；
     - 其余（未返回、无法确定）→ 无法判断。
+    - 提示词里带 "policy" 的项目改按录用标准判定：纹身、疤痕由 limbcheck.marks，指甲（policy 为 nails）由 limbcheck.nails；
+      meta 为 {mm_per_px, img_w, img_h, scale_source, params}，用来把框换算成毫米、带上岗位参数。
     """
     rules = load_prompts()["checks"]
     out: dict[str, CheckResult] = {}
@@ -180,6 +196,17 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
     for c in checks:
         pos_labels, neg_labels = set(rules[c]["positive"]), set(rules[c]["negative"])
         items = [i for i in parsed["items"] if i["check"] == c]
+        if rules[c].get("policy") == "nails":
+            from .nails import policy_result as nails_policy_result
+
+            out[c] = nails_policy_result(items, view, source, quality_ok, parsed.get("reason", ""))
+            continue
+        if rules[c].get("policy"):
+            from .marks import policy_result
+
+            others = [i for i in parsed["items"] if i["check"] != c and rules.get(i["check"], {}).get("policy") in ("tattoo", "scar")]
+            out[c] = policy_result(c, items, view, source, quality_ok, meta, parsed.get("reason", ""), others)
+            continue
         findings, pos_parts, pos_conf, neg_conf, unsure = [], [], [], [], False
         for i in items:
             label = i["label"]

@@ -1,0 +1,111 @@
+# 纹身 / 疤痕录用标准（招聘方 2026-10 提供），由 limbcheck/marks.py 执行。
+# 改标准只改这里：改完运行 `limbcheck export-web-config`（网页 demo 读生成的 JSON），再跑 pytest。
+# 动作（action）只有四种：
+#   pass    符合标准，自动放行
+#   review  需人工核验（"最终以核验为准"、估算值落在临界区、模型说不清等）
+#   block   命中"不予录用"条款 → 系统给"疑似问题·待人工确认"，附命中条款；最终结论仍由人工确认
+#   clean   疑似污渍 / 笔迹 → 提醒清洁后重拍
+version: 1
+
+reference:
+  id_card_mm: [85.6, 54.0]       # 身份证 / 卡片证，面积 46.2 cm²
+  coin_diameter_mm: 18.0         # 1 分硬币，直径 1.8 cm，面积 2.54 cm²
+
+# 尺寸估算
+measure:
+  bbox_format: rel1000           # 大模型输出框的坐标：rel1000（0–1000 相对坐标，Qwen3-VL 默认）/ abs（像素）
+  borderline: 0.3                # 估算面积在 参照面积 × (1 ± 0.3) 内视为临界 → 人工核验（人体尺寸个体差异约 ±15%，面积约 ±30%）
+  # 用人体部位当"尺子"（成人平均值，按关键点间距离计）。有参照物（身份证、硬币）入镜时优先用参照物
+  anatomy_mm:
+    palm_length: 100             # 手腕中心（手部关键点 0）→ 中指根（9）
+    palm_breadth: 70             # 食指根（5）→ 小指根（17）
+    forearm: 250                 # 肘 → 腕
+    upper_arm: 300               # 肩 → 肘
+
+# 纹身内容分类（大模型从这些类别里选），以及每类的动作
+content:
+  benign:        {name: 无攻击性图案（小星星、叶片、云朵、小花、波浪线条等）, action: pass}
+  text_neutral:  {name: 普通文字 / 字母 / 数字, action: review}
+  symbol:        {name: 明显符号, action: review}
+  unclear:       {name: 看不清图案, action: review}
+  beast:         {name: 龙、虎、豹等猛兽（含睡眠 / 闭眼状态）, action: block}
+  deity_demon:   {name: 牛鬼蛇神、鬼神形象, action: block}
+  skull_horror:  {name: 骷髅、恐怖图案, action: block}
+  weapon:        {name: 刀具、枪械等凶器, action: block}
+  gang:          {name: 帮派 / 恐吓类图案或符号, action: block}
+  violent_totem: {name: 涉暴力图腾, action: block}
+  abusive_text:  {name: 辱骂性文字, action: block}
+  vulgar:        {name: 低俗 / 色情 / 违禁内容, action: block}
+
+# 纹身按部位的规则
+tattoo:
+  regions:
+    neck:
+      name: 脖子
+      action: block              # 脖子有纹身，即使面积小也不录用
+    upper_arm:
+      name: 大臂
+      size_ref: id_card
+      large: block               # 面积 ≥ 身份证：不录用……
+      large_faded: pass          # ……但洗过、色素明显变淡且无攻击性 → 放行
+      dark: review               # 颜色过深：最终以核验为准
+    forearm:
+      name: 小臂
+      size_ref: id_card
+      large: block
+      large_faded: pass
+      dark: review
+    finger:
+      name: 手指
+      size_ref: coin             # 以 1 分硬币为参照
+      large: block
+      large_faded: pass          # "或整体洗过褪色的淡痕"
+      dark: block                # 颜色过深不予录用
+      max_count: 1               # 手指纹身 ≥ 2 处不录用（按"哪只手哪根手指"去重，跨视角合并）
+    hand_back:
+      name: 手背
+      size_ref: id_card
+      large: block
+      large_faded: review
+      dark: block
+      max_count: 1               # 手背多处纹身叠加不录用
+      single: review             # 手背属外露高频部位：单处小面积浅色无攻击性也交人工核验（改为 pass 即放行）
+    palm:
+      name: 手掌
+      size_ref: id_card
+      large: block
+      large_faded: review
+      dark: block
+      max_count: 1
+      single: review
+    face:
+      name: 面部
+      action: review
+    other:
+      name: 其他部位（背、胸、腿等）
+      action: review             # 录用标准写"仅限大臂、小臂"，其他部位交人工核验
+  unknown_size: review           # 既没有可用尺寸、大模型也没给出与参照物的比较
+  covers_scar: block             # 纹身覆盖 / 搭配疤痕
+  sticker: review                # 疑似贴纸纹身
+
+# 疤痕规则（只对明显疤痕；痣、胎记、淤青、皱褶不算）
+scar:
+  short_mm: 30                   # 单条且短于此长度、孤立、无增生 → 可录用
+  long_mm: 50                    # 长于此长度算"长条"疤痕
+  large_mm: 80                   # 长于此长度或面积 ≥ 身份证算"大面积长条"疤痕
+  parallel_multiple: block       # 多条整齐平行划痕：判定为人为自伤痕迹
+  surgical_long_fine_work: block # 长条手术刀疤，岗位为精细作业（岗位画像 scar.params.fine_work: true）
+  surgical_long_other: review    # 长条手术刀疤，非精细作业岗位
+  hypertrophic_severe: block     # 严重增生影响手部 / 手臂灵活操作
+  hypertrophic_mild: review
+  hand_back_multiple: block      # 手背多处陈旧疤痕
+  with_tattoo: block             # 疤痕同时搭配纹身
+  large: block                   # 大面积长条疤痕
+  medium: review                 # 介于短小和长条之间
+  short_single: pass             # 仅单条短小、孤立、无增生的意外伤疤
+  unknown_size: review
+
+# 污渍、笔迹、颜料：提醒清洁后重拍；重拍后仍然存在则交人工核验
+stain:
+  action: clean
+  message: 检测到{部位}可能有污渍或笔迹，请清洁后重新拍摄该部位
