@@ -781,6 +781,30 @@ const STEP_LIB = {
     },
     onTimeout(st) { if (S.body) { captureView(st, 'neck', st.firstImg ? [st.firstImg] : []); return 'review'; } return 'timeout'; },
   },
+  // 指甲近景：双手手背朝镜头、四指并拢指尖朝上，靠近镜头（甲油、甲片、长度、形状）。款式、长度、形状由大模型或人工判断，
+  // 浏览器和服务端的色差法只能看出有颜色的甲油（configs/policies/nails.yaml）
+  nails: {
+    title: '指甲近景', needs: ['hands'], scope: 'nails',
+    text: () => '请把双手举到镜头前约 30 厘米，手背朝向镜头，四指并拢、指尖朝上，让指甲看清楚',
+    check(st) {
+      if (S.hands.length < 2) return { hint: '请把双手都举到镜头前，手背朝向镜头' };
+      if (handOverlap(S.hands)) return { hint: '请把两只手并排放，不要互相遮挡' };
+      for (const h of S.hands) {
+        const name = SIDE_CN[h.side] || '手';
+        if (facing(h) !== 'back') return { hint: `${name}请手背朝向镜头` };
+        if (['index', 'middle', 'ring', 'little'].filter(f => fingerExtended(h.lm, f)).length < 3) return { hint: `${name}请把手指伸直，指尖朝上` };
+      }
+      const tips = S.hands.flatMap(h => [8, 12, 16, 20].map(i => h.lm[i]));
+      if (tips.some(p => p.y < 0.04 * H || p.x < 0.02 * W || p.x > 0.98 * W)) return { hint: '指尖出画了：请把手稍微放低，或离镜头远一点' };
+      // 指尖段（指尖到末节关节）占画面宽度：越大指甲越清楚
+      const seg = S.hands.flatMap(h => [[8, 7], [12, 11], [16, 15], [20, 19]].map(([a, b]) => dist(h.lm[a], h.lm[b]))).reduce((a, b) => a + b, 0) / (4 * S.hands.length);
+      st.metrics['指尖段占画面'] = r3(seg / W);
+      if (seg < (TH.nails.close_min_seg ?? 0.03) * W) return { hint: '请把双手再靠近镜头一些' };
+      return { ok: true };
+    },
+    onHold(st) { captureView(st, 'nails_close'); return { done: true }; },
+    onTimeout: captureOnTimeout('nails_close', 'hands'),
+  },
   // 头发近景：正面（发色、发尾位置）→ 背面（扎起的长发、后脑挑染），坐着也能做。判定在服务端（configs/policies/hair.yaml）
   hair: {
     title: '头发近景（正面 → 背面）', needs: ['pose'], scope: 'hair', timeoutFactor: 1.5,
@@ -936,12 +960,13 @@ function nextRound(step, st, now) {
 }
 
 // 检测范围：全部 / 只测身体（需要姿态、不需要手部模型的步骤）/ 只测手部 / 只测头发；分模块测试时不用每次走完全流程
-const SCOPE_CN = { body: '只测身体', hands: '只测手部', hair: '只测头发' }, GENDER_CN = { male: '男', female: '女' };
-const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands') && !s.scope, hands: s => s.needs.includes('hands') && !s.needs.includes('pose'), hair: s => s.scope === 'hair' };
+const SCOPE_CN = { body: '只测身体', hands: '只测手部', hair: '只测头发', nails: '只测指甲' }, GENDER_CN = { male: '男', female: '女' };
+const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands') && !s.scope, hands: s => s.needs.includes('hands') && !s.needs.includes('pose'), hair: s => s.scope === 'hair', nails: s => s.scope === 'nails' };
 // 范围内的检测项：有视角属于这一类（手部视角 / 身体视角）的检测项；协调性两类都有
 function scopeChecks(scope) {
   if (!scope || scope === 'all') return null;
   if (scope === 'hair') return ['hair'];
+  if (scope === 'nails') return ['nails'];
   const kind = scope === 'hands' ? 'hand' : 'body';
   return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (d.views || []).some(v => VIEWS[v]?.kind === kind)).map(([c]) => c);
 }
@@ -1569,7 +1594,7 @@ async function init() {
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
   if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
-  if (['all', 'body', 'hands', 'hair'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
+  if (['all', 'body', 'hands', 'hair', 'nails'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
   if (['male', 'female'].includes(Q.get('gender'))) $('#gender').value = Q.get('gender');
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';

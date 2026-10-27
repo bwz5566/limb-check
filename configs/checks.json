@@ -1,12 +1,12 @@
 {
   "_comment": "检测项与拍摄视角的定义（单一来源，Python 包和网页 demo 都读这里）。新增检测项或视角见 docs/EXTENDING.md。",
   "version": 1,
-  "default_prompt_version": "v2",
+  "default_prompt_version": "v3",
   "checks": {
     "limbs":    {"name": "四肢", "views": ["stand", "arms", "arms_up"], "basis_required": false, "appearance": false},
     "coordination": {"name": "肢体协调性", "views": [], "basis_required": false, "appearance": false, "motion_steps": ["arms", "cross_touch", "legs", "march", "squat", "flex", "pinch"]},
     "fingers":  {"name": "手部（手指/手掌/手背）", "views": ["palms", "backs", "hand"], "basis_required": false, "appearance": false, "required_views": ["palms", "backs"]},
-    "nails":    {"name": "美甲", "views": ["backs", "hand"], "basis_required": false, "appearance": true},
+    "nails":    {"name": "指甲（美甲 / 长度 / 形状）", "views": ["backs", "hand", "nails_close"], "basis_required": false, "appearance": true},
     "tattoo":   {"name": "纹身", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand"], "basis_required": true, "appearance": true},
     "scar":     {"name": "疤痕", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand"], "basis_required": true, "appearance": true},
     "hair":     {"name": "头发（发色 / 发长）", "views": ["head_front", "head_back"], "basis_required": true, "appearance": true},
@@ -24,6 +24,7 @@
     "head_back":  {"name": "头部背面近景", "kind": "head"},
     "palms":    {"name": "双手掌心", "kind": "hand", "expected_hands": 2},
     "backs":    {"name": "双手手背", "kind": "hand", "expected_hands": 2},
-    "hand":     {"name": "单手近景", "kind": "hand", "expected_hands": 1}
+    "hand":     {"name": "单手近景", "kind": "hand", "expected_hands": 1},
+    "nails_close": {"name": "指甲近景", "kind": "hand", "expected_hands": 2}
   }
 }

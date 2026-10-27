@@ -49,6 +49,7 @@ contour:
 
 nails:
   delta_e: 22                # 指甲与同一根手指中节皮肤的 Lab 色差，超过记"疑似美甲"（只测伸直的手指）
+  close_min_seg: 0.03        # 指甲近景：指尖段平均长度至少占画面宽度的比例（约 30 厘米距离），不够时提示靠近
 
 hair:
   policy: configs/policies/hair.yaml   # 发色、发长的颜色范围和判定阈值都在录用标准文件里
@@ -79,3 +80,4 @@ arbitration:
     tattoo: {strategy: policy}               # 按录用标准（configs/policies/marks.yaml）逐处判定
     scar: {strategy: policy, high_conf: 0.9} # 疤痕大模型误报多，要求更高置信度才自动通过
     hair: {strategy: policy}                 # 按发色、发长标准（configs/policies/hair.yaml）判定
+    nails: {strategy: policy}                # 按指甲标准（configs/policies/nails.yaml）判定：款式、长度、形状

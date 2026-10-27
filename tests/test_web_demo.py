@@ -229,3 +229,15 @@ def test_session_scope_skips_out_of_scope_required_views(server):
 def test_subject_meta_only_accepts_entered_gender(server):
     assert server.subject_meta({"gender": "male"}) == {"gender": "male"}
     assert server.subject_meta({"gender": "unknown", "x": 1}) == {} and server.subject_meta(None) == {}
+
+
+def test_nails_without_l2_goes_to_review(server):
+    ok = [{"check": "nails", "part": s, "label": "none", "positive": False, "confidence": 0.9, "source": "L1:deltaE",
+           "value": {"kind": "nail_color", "verdict": "pass"}} for s in ("right_hand", "left_hand")]
+    l1 = {"nails": CheckResult.from_dict({"check": "nails", "source": "L1:deltaE", "positive": False, "confidence": 0.9,
+                                          "findings": ok}).to_dict()}
+    out = server.arbitrate_session("precision", [{"view": "nails_close", "l1": l1}], checks=["nails"])
+    e = out["by_check"]["nails"]
+    assert e["decision"] == "review" and "大模型" in e["notes"][0]
+    l2 = {"nails": CheckResult("nails", "L2:x", False, 0.9).to_dict()}
+    assert server.arbitrate_session("precision", [{"view": "nails_close", "l1": l1, "l2": l2}], checks=["nails"])["by_check"]["nails"]["decision"] == "pass"

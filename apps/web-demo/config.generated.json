@@ -1,6 +1,6 @@
 {
   "_comment": "由 `limbcheck export-web-config` 从 configs/ 生成，请勿手改",
-  "prompt_version": "v2",
+  "prompt_version": "v3",
   "checks": {
     "limbs": {
       "name": "四肢",
@@ -42,10 +42,11 @@
       ]
     },
     "nails": {
-      "name": "美甲",
+      "name": "指甲（美甲 / 长度 / 形状）",
       "views": [
         "backs",
-        "hand"
+        "hand",
+        "nails_close"
       ],
       "basis_required": false,
       "appearance": true
@@ -151,6 +152,11 @@
       "name": "单手近景",
       "kind": "hand",
       "expected_hands": 1
+    },
+    "nails_close": {
+      "name": "指甲近景",
+      "kind": "hand",
+      "expected_hands": 2
     }
   },
   "thresholds": {
@@ -210,7 +216,8 @@
       "mask_dilate_px": 3
     },
     "nails": {
-      "delta_e": 22
+      "delta_e": 22,
+      "close_min_seg": 0.03
     },
     "hair": {
       "policy": "configs/policies/hair.yaml"
@@ -274,6 +281,9 @@
         },
         "hair": {
           "strategy": "policy"
+        },
+        "nails": {
+          "strategy": "policy"
         }
       }
     }
@@ -300,6 +310,7 @@
         "arms_close",
         "palms",
         "backs",
+        "nails",
         "flex",
         "pinch",
         "challenge"
@@ -391,6 +402,7 @@
         "arms_close",
         "palms",
         "backs",
+        "nails",
         "flex",
         "challenge"
       ],
@@ -485,6 +497,7 @@
         "squat",
         "palms",
         "backs",
+        "nails",
         "flex",
         "challenge"
       ],
@@ -576,6 +589,7 @@
         "arms_close",
         "palms",
         "backs",
+        "nails",
         "flex",
         "challenge"
       ],
@@ -955,6 +969,58 @@
           }
         }
       }
+    },
+    "nails": {
+      "version": 1,
+      "styles": {
+        "none": {
+          "name": "自然指甲",
+          "action": "pass"
+        },
+        "polish": {
+          "name": "甲油（含透明亮油）",
+          "action": "block",
+          "text": "有美甲（甲油），入职前需卸除"
+        },
+        "tips": {
+          "name": "甲片 / 贴片",
+          "action": "block",
+          "text": "有美甲（甲片），入职前需卸除"
+        },
+        "extension": {
+          "name": "延长甲",
+          "action": "block",
+          "text": "有延长甲，入职前需卸除"
+        }
+      },
+      "length": {
+        "names": {
+          "short": "短",
+          "medium": "偏长",
+          "long": "过长"
+        },
+        "actions": {
+          "short": "pass",
+          "medium": "pass",
+          "long": "block"
+        }
+      },
+      "shape": {
+        "names": {
+          "round": "圆形",
+          "square": "方形",
+          "oval": "椭圆",
+          "pointed": "尖形"
+        },
+        "actions": {
+          "round": "pass",
+          "square": "pass",
+          "oval": "pass",
+          "pointed": "block"
+        }
+      },
+      "without_l2": "review",
+      "l1_max_confidence": 0.8
     }
   },
   "strictness": {

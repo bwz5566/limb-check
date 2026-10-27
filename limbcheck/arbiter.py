@@ -13,7 +13,7 @@
 自定义策略用 @register("arbiter", "名称") 注册一个 fn(l1, l2, cfg, attempt) -> (decision, reason)；
 arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）。
 
-纹身、疤痕、头发用 policy 策略：L2 结果里每处标记（头发为 L1 的发色、发长判定）已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
+纹身、疤痕、头发、指甲用 policy 策略：L2 结果里每处标记（头发为 L1 的发色、发长判定，指甲为每只手）已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
 判为 pass / review / block / clean，策略据此给结论：block → 疑似问题·待人工确认（附命中条款）；
 clean（疑似污渍）→ 请清洁后重做；review → 人工核验；全部符合 → 按默认规则看置信度。
 """
@@ -113,8 +113,8 @@ def _verdicts(r: CheckResult | None) -> list[tuple[str, str, float]]:
 
 
 def _whole_item(r: CheckResult | None) -> bool:
-    """整体判定（发色 hair_color、发长 hair_length），不是逐处标记。"""
-    return any(isinstance(f.value, dict) and str(f.value.get("kind", "")).startswith("hair_") for f in (r.findings if r else []))
+    """整体判定（发色发长 hair_*、指甲 nail_*），不是纹身疤痕那样的逐处标记。"""
+    return any(isinstance(f.value, dict) and str(f.value.get("kind", "")).startswith(("hair_", "nail_")) for f in (r.findings if r else []))
 
 
 @register("arbiter", "policy")
@@ -137,7 +137,7 @@ def policy_judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | Non
         return REVIEW, "需人工核验：" + "；".join(pick("review"))
     decision, reason = judge(l1, l2, cfg, attempt)
     passed = [t for v, t, _ in vs if v == "pass" and t]
-    if _whole_item(l1) or _whole_item(l2):      # 发色、发长：列出各项判定
+    if _whole_item(l1) or _whole_item(l2):      # 发色发长、指甲：列出各项判定
         return decision, ("；".join(passed) + "；" if passed else "") + reason
     return decision, (f"发现 {len(passed)} 处，均符合录用标准；" if passed else "") + reason
 

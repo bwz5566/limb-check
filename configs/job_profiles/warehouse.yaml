@@ -6,7 +6,7 @@ requirements:
   - 能下蹲后起立
   - 双手能完成抓握
 strictness: standard        # 筛选严格度 strict / standard / lenient（configs/strictness.yaml），可按场次临时切换
-steps: [env, stand, back, arms, cross_touch, neck, hair, arms_close, legs, march, squat, palms, backs, flex, challenge]
+steps: [env, stand, back, arms, cross_touch, neck, hair, arms_close, legs, march, squat, palms, backs, nails, flex, challenge]
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: true}}
   coordination: {enabled: true, mode: judge}   # 动作序列分析（configs/thresholds.yaml 的 motion 段）；只有关键点一路，发现问题只建议人工确认

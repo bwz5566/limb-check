@@ -184,7 +184,7 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
     - 任一条为"有问题"标签 → 有问题（uncertain 的有问题标签置信度减半，仍按有问题处理，宁可多送人工）；
     - 全部为"正常"标签且不 uncertain → 正常（逐手的项目要求每只手都返回了）；
     - 其余（未返回、无法确定）→ 无法判断。
-    - 提示词里带 "policy" 的项目（纹身、疤痕）改由 limbcheck.marks 按录用标准判定；
+    - 提示词里带 "policy" 的项目改按录用标准判定：纹身、疤痕由 limbcheck.marks，指甲（policy 为 nails）由 limbcheck.nails；
       meta 为 {mm_per_px, img_w, img_h, scale_source, params}，用来把框换算成毫米、带上岗位参数。
     """
     rules = load_prompts()["checks"]
@@ -196,10 +196,15 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
     for c in checks:
         pos_labels, neg_labels = set(rules[c]["positive"]), set(rules[c]["negative"])
         items = [i for i in parsed["items"] if i["check"] == c]
+        if rules[c].get("policy") == "nails":
+            from .nails import policy_result as nails_policy_result
+
+            out[c] = nails_policy_result(items, view, source, quality_ok, parsed.get("reason", ""))
+            continue
         if rules[c].get("policy"):
             from .marks import policy_result
 
-            others = [i for i in parsed["items"] if i["check"] != c and rules.get(i["check"], {}).get("policy")]
+            others = [i for i in parsed["items"] if i["check"] != c and rules.get(i["check"], {}).get("policy") in ("tattoo", "scar")]
             out[c] = policy_result(c, items, view, source, quality_ok, meta, parsed.get("reason", ""), others)
             continue
         findings, pos_parts, pos_conf, neg_conf, unsure = [], [], [], [], False

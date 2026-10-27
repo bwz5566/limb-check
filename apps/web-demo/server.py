@@ -60,6 +60,7 @@ os.environ.setdefault("LIMBCHECK_CONFIG_DIR", str(REPO / "configs"))
 from limbcheck.arbiter import arbitrate, worst  # noqa: E402
 from limbcheck.core import CHECK_DEFS, VIEW_CN, VIEW_CHECKS, CheckResult  # noqa: E402
 from limbcheck.marks import session_review, set_policy  # noqa: E402
+from limbcheck.nails import nails_policy, set_nails_policy  # noqa: E402
 from limbcheck.motion import analyze as analyze_motion, motion_result  # noqa: E402
 from limbcheck.strictness import arbitration_cfg, default_level, levels, set_config  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
@@ -69,6 +70,7 @@ MODELS = Path(os.environ.get("LIMBCHECK_MODELS_DIR") or REPO / "models")
 WEB_CONFIG = json.loads((ROOT / "config.generated.json").read_text(encoding="utf-8"))
 JOBS = {j["id"]: j for j in WEB_CONFIG["jobs"]}
 set_policy(WEB_CONFIG["policies"]["marks"])      # 录用标准、严格度与网页配置同源（由 configs/ 生成）
+set_nails_policy(WEB_CONFIG["policies"]["nails"])
 set_config(WEB_CONFIG["strictness"])
 DECISION_OF_ACTION = {"review": "review", "clean": "redo", "pass": "pass"}
 
@@ -378,6 +380,11 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
                 d = DECISION_OF_ACTION.get(r["action"]) or (
                     "fail" if auto_fail is not None and r.get("confidence", 0) >= auto_fail else "fail_suggested")
                 add(c, d, r["text"])
+    # 指甲长度、形状只有大模型能判断：拍了指甲近景但没有大模型结果时，按标准的 without_l2 处理（默认交人工看指甲近景）
+    if "nails" in by_check and "nails_close" in seen and not any((fr.get("l2") or {}).get("nails") for fr in frames):
+        act = nails_policy().get("without_l2", "review")
+        if act != "pass":
+            add("nails", DECISION_OF_ACTION.get(act, "fail_suggested"), "指甲长度、形状需要大模型判断（未启用），请人工查看指甲近景")
     # 肢体协调性：分析动作序列（只有关键点一路，发现问题 → 疑似问题·待人工确认）
     analysis = None
     if motion and mode_of(job, "coordination") != "off":

@@ -55,7 +55,7 @@ function hand(cx, cy, dir, o = {}) {
     const [pos, len] = FINGER_GEOM[f], x = cx + dir * pos * 8.5;
     if (ext.has(f)) {
       s += `<rect x="${x - 3.8}" y="${cy - len + 4}" width="7.6" height="${len}" rx="3.8" fill="${hlCol(f)}" stroke="${SKIN_LINE}" stroke-width="1.2"/>`;
-      if (facing === 'back') s += `<rect x="${x - 2.4}" y="${cy - len + 5.5}" width="4.8" height="6" rx="2" fill="${NAIL}" stroke="${SKIN_LINE}" stroke-width=".6"/>`;
+      if (facing === 'back') s += `<rect x="${x - 2.4}" y="${cy - len + 5.5}" width="4.8" height="6" rx="2" fill="${o.nailHl ? OR : NAIL}" stroke="${SKIN_LINE}" stroke-width=".6"${o.nailHl ? ' class="g-pulse"' : ''}/>`;
       tips[f] = [x, cy - len + 7];
       if (o.hl === f || o.pinch === f) s += text(x, cy - len - 2, FINGER_SHORT[f], 9, OR);   // 只标要用的那根手指，避免文字挤在一起
     } else {
@@ -138,6 +138,7 @@ const GUIDES = {
     caption: st.phase ? '小臂翻过来：掌心、小臂内侧朝镜头' : '走近，小臂水平横放胸前：手背、小臂外侧朝镜头',
   }),
   palms: () => ({ svg: twoHands('palm'), caption: '双手掌心朝镜头，五指张开' }),
+  nails: () => ({ svg: twoHands('back', { nailHl: true }), caption: '手背朝镜头，四指并拢朝上，靠近镜头让指甲看清楚' }),
   backs: () => ({ svg: twoHands('back'), caption: '手背朝镜头，五指张开' }),
   flex: st => st.phase
     ? { key: 'open', svg: twoHands('palm'), caption: '再把双手完全张开，掌心朝镜头' }

@@ -35,7 +35,7 @@ def load_thresholds(path: str | Path | None = None) -> dict:
 
 
 def load_policy(name: str = "marks", path: str | Path | None = None) -> dict:
-    """录用标准（configs/policies/<name>.yaml）：marks（纹身 / 疤痕 / 污渍）、hair（发色 / 发长）。"""
+    """录用标准（configs/policies/<name>.yaml）：marks（纹身 / 疤痕 / 污渍）、hair（发色 / 发长）、nails（指甲）。"""
     return _load_yaml(Path(path) if path else config_dir() / "policies" / f"{name}.yaml")
 
 
@@ -104,7 +104,7 @@ def web_config(thresholds: dict | None = None, profiles: dict | None = None) -> 
         "thresholds": th,
         "jobs": jobs,
         "appearance_checks": list(APPEARANCE_CHECKS),
-        "policies": {"marks": load_policy("marks"), "hair": load_policy("hair")},
+        "policies": {"marks": load_policy("marks"), "hair": load_policy("hair"), "nails": load_policy("nails")},
         "strictness": _load_yaml(config_dir() / "strictness.yaml"),
     }
 

@@ -100,10 +100,12 @@ def fingers_contour(ctx: L1Context) -> CheckResult | None:
 
 @register("l1", "nails.delta_e", check="nails", needs="keypoints")
 def nails_delta_e(ctx: L1Context) -> CheckResult | None:
-    """指甲与手背肤色的 Lab 色差，只对手背朝向镜头的手判断。"""
+    """指甲与同一根手指中节皮肤的 Lab 色差，只对手背朝向镜头的手判断；按 configs/policies/nails.yaml 给出 verdict。"""
     if ctx.keypoints is None:
         return None
-    return nails_result(ctx.img, ctx.hands, ctx.th["nails"], "L1:deltaE", ctx.mirrored)
+    from .nails import l1_with_verdicts
+
+    return l1_with_verdicts(nails_result(ctx.img, ctx.hands, ctx.th["nails"], "L1:deltaE", ctx.mirrored))
 
 
 STRAIGHT_VIEWS = ("stand", "arms", "arms_up")     # 这些视角要求手臂（站立时还有腿）伸直
