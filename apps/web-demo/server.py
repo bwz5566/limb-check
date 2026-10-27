@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""网页验证 demo 的本地服务：静态文件 + 大模型复核代理 + 仲裁。
+"""网页验证 demo 的本地服务：静态文件 + 服务端判定 + 大模型复核代理 + 仲裁。
 
-只用 Python 标准库（不需要 pip install），直接复用仓库里的 limbcheck.prompts / vlm / arbiter，
+基础功能只用 Python 标准库，直接复用仓库里的 limbcheck.prompts / vlm / arbiter，
 保证网页、离线评测、将来的服务端用同一套提示词、输出解析和仲裁规则。
+服务端判定（/api/analyze）：对浏览器上传的高清截图跑 Python 流水线（关键点 + 轮廓复核），
+需要 pip install -e ".[mediapipe]" 或 ".[rtmw]"；装不上时自动退回浏览器端结果。
+浏览器端的关键点只用来引导受检者做动作。
 
 配置：写在同目录的 .env 文件里（复制 .env.example 改名为 .env 再填写；.env 不会提交到 git），
 或启动前设置同名环境变量（环境变量优先）：
@@ -11,6 +14,9 @@
   VLM_MODEL     模型名；默认 qwen3.7-plus（DashScope）
   VLM_SCHEMA    设为 1 时用 JSON Schema 约束输出（vLLM 支持；不支持的服务会自动退回）
   LIMBCHECK_PROMPT_VERSION  提示词版本（configs/prompts/<版本>.json），默认见 configs/checks.json
+  LIMBCHECK_PIPELINE  服务端判定用的流水线（configs/pipelines/ 下的名字或 yaml 路径）；
+                默认 auto：先试 rtmw-skin-cpu（需 pip install -e ".[rtmw]"，首次运行下载模型），不行再用 mediapipe-skin；
+                设为 off 则只用浏览器端结果
   PORT          默认 8000
   HOST          默认 127.0.0.1（局域网内用手机访问时设为 0.0.0.0，但浏览器只允许 https 或 localhost 打开摄像头）
 """
@@ -19,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -84,6 +91,96 @@ def make_client() -> VLMClient | None:
 CLIENT = make_client()
 
 
+class ServerJudge:
+    """服务端判定：模型只加载一次，按岗位画像、严格度为每个请求组装 Pipeline（模型节点共用）。
+    MediaPipe / ONNX 推理对象不保证线程安全，推理串行执行。"""
+
+    AUTO = ("rtmw-skin-cpu", "mediapipe-skin")
+
+    def __init__(self, choice: str | None = None):
+        self.choice = (choice or os.environ.get("LIMBCHECK_PIPELINE") or "auto").strip()
+        self.base = None
+        self.error: str | None = None
+        self.loaded = False
+        self._lock = threading.Lock()
+        self._th = None
+        self._profiles: dict = {}
+
+    @property
+    def enabled(self) -> bool:
+        return self.choice.lower() not in ("off", "none", "0", "")
+
+    def _spec_path(self, name: str) -> Path:
+        p = Path(name)
+        if p.suffix in (".yaml", ".yml") and p.exists():
+            return p
+        return REPO / "configs" / "pipelines" / f"{name.removesuffix('.yaml')}.yaml"
+
+    def load(self) -> None:
+        with self._lock:
+            if self.loaded or not self.enabled:
+                return
+            self.loaded = True
+            errors = []
+            try:
+                from limbcheck.config import load_job_profiles, load_thresholds
+                from limbcheck.pipeline import Pipeline, load_pipeline_spec
+            except ImportError as e:
+                self.error = f"缺少依赖（{e}），请 pip install -e \".[mediapipe]\""
+                return
+            self._th = load_thresholds()
+            self._profiles = load_job_profiles()
+            for name in (self.AUTO if self.choice.lower() == "auto" else (self.choice,)):
+                try:
+                    spec = load_pipeline_spec(self._spec_path(name))
+                    self.base = Pipeline.from_spec(spec, self._th, None, vlm="none")   # 大模型走 /api/review，这里只做 L1
+                    self.error = None
+                    return
+                except Exception as e:   # 依赖没装、模型下载失败等 → 试下一个
+                    errors.append(f"{name}: {type(e).__name__}: {e}"[:300])
+            self.error = "；".join(errors)
+
+    def status(self) -> dict:
+        return {"enabled": self.base is not None, "pipeline": self.base.name if self.base else None,
+                "error": self.error if self.enabled else "LIMBCHECK_PIPELINE=off"}
+
+    def analyze(self, view: str, image: str, job_id: str | None, strictness: str | None) -> dict:
+        from limbcheck.pipeline import Pipeline
+
+        self.load()
+        if self.base is None:
+            raise RuntimeError(self.error or "服务端判定未启用")
+        img = decode_image(image)
+        job = JOBS.get(job_id)
+        b = self.base
+        p = Pipeline(self._th, keypoints=b.kp, contour=b.contour, segmenter=b.seg, profile=self._profiles.get(job_id),
+                     mirrored=b.mirrored, l1=b.l1_names, name=b._name, strictness=strictness_of(job, strictness))
+        t0 = time.perf_counter()
+        with self._lock:
+            r = p.run(img, view)
+        l1 = {c: v["l1"] for c, v in r["results"].items() if v.get("l1")}
+        return {"view": view, "pipeline": b.name, "l1": l1, "quality": r["quality"], "errors": r["errors"],
+                "latency_ms": {**r["latency_ms"], "total": round((time.perf_counter() - t0) * 1000, 1)},
+                "img_size": [int(img.shape[1]), int(img.shape[0])]}
+
+
+def decode_image(data: str):
+    """data:image/jpeg;base64,... → RGB ndarray。"""
+    import base64
+
+    import cv2
+    import numpy as np
+
+    raw = base64.b64decode(data.split(",", 1)[1] if data.startswith("data:") else data)
+    img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("图片无法解码")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
+JUDGE = ServerJudge()
+
+
 def mode_of(job: dict | None, check: str) -> str:
     if job is None:
         return "judge"
@@ -94,7 +191,8 @@ def mode_of(job: dict | None, check: str) -> str:
 
 
 def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None) -> dict:
-    """frames: [{view, l1: {check: CheckResult dict}, l2: {check: CheckResult dict}}]。
+    """frames: [{view, l1: {check: CheckResult dict}, l1_server: {...}, l2: {check: CheckResult dict}}]。
+    l1_server 是服务端对高清截图的判定（/api/analyze），有就用它；没有（服务端未启用或失败）才用浏览器端 l1。
     motion：动作步骤的关键点序列（格式见 limbcheck/motion.py），用于"肢体协调性"。
     与离线评测一致：按最后一次尝试仲裁（attempt = max_redo），另给出首次尝试的结论供统计重做率。"""
     job = JOBS.get(job_id)
@@ -105,15 +203,19 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
     for fr in frames:
         view = fr["view"]
         l1s, l2s = fr.get("l1") or {}, fr.get("l2") or {}
+        srv = fr.get("l1_server")
         out = {}
         for c in VIEW_CHECKS.get(view, ()):
             mode = mode_of(job, c)
-            a, b = CheckResult.from_dict(l1s.get(c)), CheckResult.from_dict(l2s.get(c))
+            use_srv = srv is not None and c in srv
+            a = CheckResult.from_dict((srv if use_srv else l1s).get(c))
+            b = CheckResult.from_dict(l2s.get(c))
             if mode == "off" or (a is None and b is None):
                 continue
             final = arbitrate(c, a, b, cfg, mode, final_attempt)
             first = arbitrate(c, a, b, cfg, mode, 0)
-            out[c] = {**final.to_dict(), "shadow_first_attempt": first.shadow}
+            out[c] = {**final.to_dict(), "shadow_first_attempt": first.shadow,
+                      "l1_from": "server" if use_srv else "browser"}
         by_view[view] = out
     by_check: dict = {}
     for view, res in by_view.items():
@@ -205,7 +307,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {
                 "vlm": CLIENT is not None, "model": CLIENT.model if CLIENT else None,
                 "schema": bool(CLIENT and CLIENT.use_schema), "prompt_version": prompt_version(),
-                "web": WEB_CONFIG,
+                "server_judge": JUDGE.status(), "web": WEB_CONFIG,
             })
         return super().do_GET()
 
@@ -229,6 +331,18 @@ class Handler(SimpleHTTPRequestHandler):
             meta["strictness"] = strictness_of(job, req.get("strictness"))
             rv = CLIENT.review(view, checks, req.get("images") or [], meta)
             return self._json(200, rv.to_dict())
+        if self.path == "/api/analyze":
+            view = req.get("view")
+            if view not in VIEW_CHECKS:
+                return self._json(400, {"error": f"未知视角 {view!r}"})
+            if not req.get("image"):
+                return self._json(400, {"error": "缺少 image"})
+            try:
+                return self._json(200, JUDGE.analyze(view, req["image"], req.get("job"), req.get("strictness")))
+            except ValueError as e:
+                return self._json(400, {"error": str(e)})
+            except RuntimeError as e:
+                return self._json(503, {"error": str(e)})
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
             out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"))
@@ -245,9 +359,13 @@ def main():
     missing = [n for n in ("hand_landmarker.task", "pose_landmarker_full.task") if not (MODELS / n).exists()]
     if missing:
         print(f"警告：{MODELS} 下缺少模型文件 {missing}，网页将无法加载模型")
+    print("正在加载服务端判定模型……")
+    JUDGE.load()
+    js = JUDGE.status()
     server = ThreadingHTTPServer((HOST, PORT), partial(Handler, directory=str(ROOT)))
     status = f"已启用（{CLIENT.model} @ {CLIENT.base_url}）" if CLIENT else "未启用"
     print(f"Demo 已启动：在 Chrome 或 Edge 中打开 http://localhost:{PORT}")
+    print(f"服务端判定（L1）：{'已启用（' + js['pipeline'] + '）' if js['enabled'] else '未启用，只用浏览器端结果（' + str(js['error']) + '）'}")
     print(f"大模型复核（L2）：{status}   提示词版本：{prompt_version()}")
     print("按 Ctrl+C 停止")
     try:

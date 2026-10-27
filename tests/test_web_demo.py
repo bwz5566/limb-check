@@ -8,6 +8,7 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from limbcheck.core import CheckResult, Finding
@@ -131,3 +132,49 @@ def test_env_file_does_not_override_environment(server, tmp_path, monkeypatch):
     import os
     assert os.environ["VLM_API_KEY"] == "sk-file" and os.environ["LIMBCHECK_TEST_X"] == "env" and "VLM_MODEL" not in os.environ
     monkeypatch.delenv("VLM_API_KEY")
+
+
+def test_session_prefers_server_l1(server):
+    """服务端对高清截图的判定优先；某项服务端没给结果时才用浏览器端。"""
+    browser_ok = CheckResult("fingers", "L1:mediapipe-web", False, 0.95).to_dict()
+    server_bad = CheckResult("fingers", "L1:rtmw+contour-skin", None, 0.0, quality_ok=False,
+                             note="有手指蜷起或并拢").to_dict()
+    nails_ok = CheckResult("nails", "L1:deltaE-web", False, 0.9).to_dict()
+    fr = {"view": "backs", "l1": {"fingers": browser_ok, "nails": nails_ok}, "l1_server": {"fingers": server_bad}}
+    out = server.arbitrate_session("precision", [fr, {"view": "palms", "l1": {"fingers": browser_ok}}])
+    v = out["by_view"]["backs"]
+    assert v["fingers"]["l1_from"] == "server" and v["fingers"]["decision"] != "pass"
+    assert v["nails"]["l1_from"] == "browser"
+    assert out["by_view"]["palms"]["fingers"]["l1_from"] == "browser"
+
+
+def test_analyze_endpoint(server, base_url, monkeypatch):
+    code, d = _post(base_url + "/api/analyze", {"view": "nope", "image": "x"})
+    assert code == 400
+    monkeypatch.setattr(server, "JUDGE", server.ServerJudge("off"))
+    code, d = _post(base_url + "/api/analyze", {"view": "backs", "image": "data:image/jpeg;base64,AA=="})
+    assert code == 503
+    with urllib.request.urlopen(base_url + "/api/config", timeout=10) as r:
+        assert json.loads(r.read())["server_judge"]["enabled"] is False
+
+
+def test_analyze_runs_python_pipeline(server, base_url, monkeypatch):
+    pytest.importorskip("mediapipe")
+    import base64
+
+    import cv2
+
+    judge = server.ServerJudge("mediapipe-skin")
+    judge.load()
+    if judge.base is None:
+        pytest.skip(f"服务端流水线加载失败：{judge.error}")
+    monkeypatch.setattr(server, "JUDGE", judge)
+    img = np.full((360, 640, 3), 200, np.uint8)
+    ok, buf = cv2.imencode(".jpg", img)
+    uri = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
+    code, d = _post(base_url + "/api/analyze", {"view": "backs", "image": uri, "job": "precision"})
+    assert code == 200 and d["pipeline"] == "mediapipe-skin" and d["img_size"] == [640, 360]
+    # 画面里没有手 → 不能判"正常"
+    assert d["l1"]["fingers"]["positive"] is None and d["l1"]["fingers"]["quality_ok"] is False
+    code, d = _post(base_url + "/api/analyze", {"view": "backs", "image": "data:image/jpeg;base64,AAAA"})
+    assert code == 400

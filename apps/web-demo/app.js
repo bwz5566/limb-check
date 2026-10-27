@@ -45,7 +45,7 @@ const draw = new DrawingUtils(ctx);
 const grab = document.createElement('canvas'), gctx = grab.getContext('2d', { willReadFrequently: true });
 
 let poseLm, handLm, delegate = 'GPU', W = 1280, H = 720;
-const S = { running: false, stepIdx: -1, steps: [], results: [], frames: [], reviews: [], pose: null, body: null, poseCount: 0, hands: [], brightness: 128, frame: 0, baseline: null, job: null, t0: 0, perf: { pose: [], hand: [], frames: 0 }, lastSpoken: { text: '', at: 0 } };
+const S = { running: false, stepIdx: -1, steps: [], results: [], frames: [], reviews: [], analyses: [], pose: null, body: null, poseCount: 0, hands: [], brightness: 128, frame: 0, baseline: null, job: null, t0: 0, perf: { pose: [], hand: [], frames: 0 }, lastSpoken: { text: '', at: 0 } };
 
 // ---------- 工具 ----------
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -494,7 +494,18 @@ function captureView(st, view, extraImgs = []) {
     st.hands = [...(st.hands || []), ...S.hands.map(h => ({ view, side: h.side, score: r2(h.score), ...analyzeFingers(h.lm) }))];
     if (viewChecks(view).includes('nails')) st.nails = [...(st.nails || []), ...S.hands.filter(h => facing(h) === 'back').map(h => ({ view, side: h.side, nails: nailSamples(h.lm, true) }))];
   }
+  requestAnalyze(view, img);
   requestReview(view, [img, ...extraImgs], scale);
+}
+
+// ---------- 服务端判定：高清截图交服务端 Python 流水线判定，浏览器端关键点只用来引导动作 ----------
+const serverJudgeOn = () => !!(VLM.server_judge?.enabled && $('#useServer')?.checked);
+function requestAnalyze(view, image) {
+  if (!serverJudgeOn()) return;
+  const t0 = performance.now();
+  S.analyses.push(fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, image, job: S.job.id, strictness: S.strictness }) })
+    .then(async r => { const d = await r.json(); return r.ok ? { ...d, roundtrip_ms: Math.round(performance.now() - t0) } : { view, l1: null, errors: [d.error || r.statusText] }; })
+    .catch(e => ({ view, l1: null, errors: [String(e)] })));
 }
 
 // ---------- L2：视觉大模型复核（提示词、解析、转换都在服务端，与离线评测同一套） ----------
@@ -1044,15 +1055,20 @@ function nextStep() {
 async function endRun() {
   S.running = false;
   S.durationMs = Math.round(performance.now() - S.t0);
-  $('#banner').textContent = '检测完成，正在等待大模型复核与仲裁…';
+  $('#banner').textContent = '检测完成，正在等待服务端判定、大模型复核与仲裁…';
   $('#skipBtn').hidden = true;
   say('检测完成，谢谢配合', true);
   video.srcObject?.getTracks().forEach(t => t.stop());
-  const reviews = await Promise.all(S.reviews);
-  for (const fr of S.frames) fr.l2 = reviews.find(r => r.view === fr.view)?.results || null;
+  const [reviews, analyses] = await Promise.all([Promise.all(S.reviews), Promise.all(S.analyses)]);
+  for (const fr of S.frames) {
+    fr.l2 = reviews.find(r => r.view === fr.view)?.results || null;
+    const an = analyses.find(a => a.view === fr.view);
+    fr.l1_server = an?.l1 || null;   // 服务端没结果（未启用或出错）时仲裁退回浏览器端 l1
+  }
+  S.analysesDone = analyses;
   let arb;
   try {
-    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
+    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
     arb = await r.json();
     if (!r.ok) throw new Error(arb.error || r.statusText);
   } catch (e) { arb = { error: `仲裁服务不可用：${e.message || e}`, by_view: {}, by_check: {} }; }
@@ -1115,10 +1131,11 @@ function buildExport() {
     schema: SCHEMA, session_id: S.sessionId, subject_id: v.subject_id, at: S.startedAt, validation: v.validation,
     job: { id: S.job.id, name: S.job.name }, strictness: S.strictness, truth: v.truth, meta: v.meta,
     client: { ua: navigator.userAgent, platform: navigator.platform, language: navigator.language, video: { w: W, h: H } },
-    config: { prompt_version: WEB.prompt_version, thresholds_version: TH.version, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null },
+    config: { prompt_version: WEB.prompt_version, thresholds_version: TH.version, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null, server_pipeline: serverJudgeOn() ? VLM.server_judge.pipeline : null },
     perf: perfSummary(),
     steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note, ms: r.ms, metrics: r.metrics, views: r.views })),
-    frames: S.frames.map(({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands }) => ({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands })),
+    frames: S.frames.map(({ view, step, img, extra_imgs, scale, l1, l1_server, brightness, at_ms, hands }) => ({ view, step, img, extra_imgs, scale, l1, l1_server, brightness, at_ms, hands })),
+    analyses: (S.analysesDone || []).map(({ view, pipeline, latency_ms, roundtrip_ms, quality, errors, img_size }) => ({ view, pipeline, latency_ms, roundtrip_ms, quality, errors, img_size })),
     motion: motionPayload(),
     retakes: S.retakes || 0,
     reviews: S.reviewsDone,
@@ -1177,9 +1194,14 @@ function renderReport() {
   const perf = perfSummary();
   const frameBlock = S.frames.map(f => {
     const a = arb.by_view?.[f.view] || {};
-    const checks = [...new Set([...Object.keys(f.l1 || {}), ...Object.keys(f.l2 || {}), ...Object.keys(a)])];
+    const checks = [...new Set([...Object.keys(f.l1 || {}), ...Object.keys(f.l1_server || {}), ...Object.keys(f.l2 || {}), ...Object.keys(a)])];
+    const an = (S.analysesDone || []).find(x => x.view === f.view);
+    const l1Cell = c => {
+      if (!f.l1_server || !(c in f.l1_server)) return resultCell(f.l1?.[c]) + (an?.errors?.length ? `<br><span class="s-review small">服务端判定失败，用的是浏览器端结果：${esc(an.errors.join('；'))}</span>` : '');
+      return `${resultCell(f.l1_server[c])}<br><span class="muted small">服务端 ${esc(an?.pipeline || '')}</span>${f.l1?.[c] ? `<details><summary class="muted small">浏览器端（只用于引导）</summary>${resultCell(f.l1[c])}</details>` : ''}`;
+    };
     return `<div class="frame"><figure><img src="${f.img}" alt="${esc(VIEWS[f.view].name)}"><figcaption>${esc(VIEWS[f.view].name)}${f.hands?.length ? `<br><span class="muted small">左右手判定：${f.hands.map(h => `${SIDE_CN[h.side] || '?'}(${h.by === 'model' ? '模型' : '位置'})`).join('、')}</span>` : ''}</figcaption></figure>
-      <table><tr><th>检测项</th><th>L1 专用模型</th><th>L2 大模型</th><th>仲裁</th></tr>${checks.map(c => `<tr><td>${esc(CHECKS[c]?.name || c)}</td><td>${resultCell(f.l1?.[c])}</td><td>${resultCell(f.l2?.[c])}</td><td>${a[c] ? `${decisionCell({ ...a[c] })}<br><span class="muted small">${esc(shortReason(a[c].reason))}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">无</td></tr>'}</table></div>`;
+      <table><tr><th>检测项</th><th>L1 专用模型</th><th>L2 大模型</th><th>仲裁</th></tr>${checks.map(c => `<tr><td>${esc(CHECKS[c]?.name || c)}</td><td>${l1Cell(c)}</td><td>${resultCell(f.l2?.[c])}</td><td>${a[c] ? `${decisionCell({ ...a[c] })}<br><span class="muted small">${esc(shortReason(a[c].reason))}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">无</td></tr>'}</table></div>`;
   }).join('') || '<p class="muted">没有采集到证据帧</p>';
   const handRows = S.results.filter(r => r.hands?.length).flatMap(r => r.hands.map(h => `<tr><td>${esc(VIEWS[h.view].name)}</td><td>${SIDE_CN[h.side] || '?'}</td><td>${h.extended}</td><td>${FINGERS.map(f => `${FINGER_CN[f]} ${h.fingers[f].ratio}${h.fingers[f].short ? ' <b class="s-review">疑似缺失或短缩</b>' : ''}`).join('<br>')}</td><td>${h.mid_to_palm}</td></tr>`)).join('');
   const nailRows = S.results.flatMap(r => r.nails || []).map(h => `<p><b>${SIDE_CN[h.side] || '?'}</b></p><div class="thumbs nails">${h.nails.map(n => n.deltaE == null ? `<figure><figcaption class="muted small">${FINGER_CN[n.finger]} 未伸直，未测</figcaption></figure>` : `<figure><img src="${n.img}"><figcaption class="muted small">${FINGER_CN[n.finger]} ΔE ${n.deltaE}${n.flag ? ' <b class="s-review">疑似美甲</b>' : ''}</figcaption></figure>`).join('')}</div>`).join('');
@@ -1190,7 +1212,7 @@ function renderReport() {
 
   el.innerHTML = `
   <h2>检测报告</h2>
-  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
+  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${serverJudgeOn() ? ` · L1 服务端 ${esc(VLM.server_judge.pipeline)}` : ' · L1 浏览器端'}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
   <p>能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
   ${arb.error ? `<p class="s-fail">${esc(arb.error)}</p>` : ''}
   <h3>岗位要求核对</h3>
@@ -1199,7 +1221,7 @@ function renderReport() {
   ${marksBlock}
   ${motionBlock}
   <h3>各视角证据与判定</h3>
-  <p class="muted small">L1 为浏览器内关键点 + 规则；L2 为视觉大模型；仲裁规则与离线评测相同（configs/thresholds.yaml 的 arbitration 段）。</p>
+  <p class="muted small">L1 为专用模型 + 规则（启用服务端判定时用服务端对高清截图的结果，浏览器端结果只用于引导、折叠在下面）；L2 为视觉大模型；仲裁规则与离线评测相同（configs/thresholds.yaml 的 arbitration 段）。</p>
   ${frameBlock}
   <h3>分步结果</h3>
   <table><tr><th>步骤</th><th>结果</th><th>用时</th><th>指标</th><th>证据</th></tr>
@@ -1283,6 +1305,7 @@ async function retake(views) {
   S.frames = S.frames.filter(f => !ids.includes(f.step));
   const kept = new Set(S.frames.map(f => f.view));
   S.reviews = (S.reviewsDone || []).filter(r => kept.has(r.view)).map(r => Promise.resolve(r));
+  S.analyses = (S.analysesDone || []).filter(r => kept.has(r.view)).map(r => Promise.resolve(r));
   S.results = S.results.filter(r => !ids.includes(r.id));
   S.steps = ids.map(id => ({ ...STEP_LIB[id], id, state: null }));
   S.retakes = (S.retakes || 0) + 1; S.remindSpoken = false;
@@ -1311,6 +1334,7 @@ async function loadConfig() {
   } catch {
     WEB = await (await fetch('config.generated.json')).json();
     $('#vlmStatus').textContent = '大模型复核：不可用（请用 server.py 启动）';
+    $('#judgeStatus').textContent = '服务端判定：不可用（请用 server.py 启动）';
   }
   TH = WEB.thresholds; CHECKS = WEB.checks; VIEWS = WEB.views; JOBS = Object.fromEntries(WEB.jobs.map(j => [j.id, j]));
   HOLD_MS = FAST ? 500 : TH.capture.hold_ms;
@@ -1344,6 +1368,10 @@ async function init() {
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';
     $('#vlmStatus').className = 'tag ' + (VLM.vlm ? 'ok' : '');
+    const sj = VLM.server_judge || {};
+    $('#judgeStatus').textContent = sj.enabled ? `服务端判定：已启用（${sj.pipeline}）` : '服务端判定：未启用';
+    $('#judgeStatus').className = 'tag ' + (sj.enabled ? 'ok' : '');
+    if (!sj.enabled) { $('#judgeStatus').title = sj.error || ''; $('#useServer').checked = false; $('#useServer').disabled = true; }
   }
   $('#vOn').onchange = () => { $('#vForm').hidden = !$('#vOn').checked; };
   addExtraLabelFields();

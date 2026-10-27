@@ -1,12 +1,14 @@
 # 网页验证 Demo
 
-候选人在浏览器里按语音提示完成一组动作；浏览器内用 MediaPipe 实时检测关键点并做 L1 判定，
-每个视角的证据截图可选地发给视觉大模型做 L2 复核，最后由 `server.py` 按与离线评测相同的规则仲裁，生成报告。
+候选人在浏览器里按语音提示完成一组动作；浏览器内用 MediaPipe 实时检测关键点，**只用来引导动作和决定什么时候截图**。
+每个视角的高清证据截图交 `server.py` 用 Python 流水线做 L1 判定（服务端判定，见下文），可选地再发给视觉大模型做 L2 复核，
+最后按与离线评测相同的规则仲裁，生成报告。
 **验证模式**下，测试员可以记录受检者的真实情况，导出报告后用 `limbcheck` 计算检出率、误报率等指标。
 
 ## 运行
 
-只需要 Python 3.10 及以上，不用 pip 安装任何包（`server.py` 只用标准库，直接复用仓库里的 `limbcheck` 代码）。
+只需要 Python 3.10 及以上。不装任何包也能跑（`server.py` 基础功能只用标准库），但这时只有浏览器端结果，误判多；
+建议先在仓库根目录 `pip install -e ".[mediapipe,rtmw]"` 启用服务端判定（见下文）。
 模型文件在仓库根目录 `models/`，已随仓库提供，无需联网下载。
 
 ```bash
@@ -18,6 +20,22 @@ python server.py            # Windows 也可以双击 start.bat；macOS 双击 s
 
 浏览器只允许在 `localhost` 或 https 页面上打开摄像头。用手机测试时，可以把电脑上的服务通过 https 反向代理出去，
 或在手机上用 USB 调试转发端口；同一局域网直接访问 `http://电脑IP:8000` 会被浏览器拒绝打开摄像头。
+
+## 服务端判定（L1）
+
+浏览器里的小模型只能看 1280×720 的实时画面，被遮挡、蜷起的手指也会"脑补"出关键点，用来做最终判定误判太多。
+所以每张证据截图都会上传到 `server.py`，用 `limbcheck` 的 Python 流水线重新判定（关键点 + 手指肤色轮廓 + 人体分割复核），
+仲裁时优先用服务端结果；服务端没装依赖或出错时，自动退回浏览器端结果（报告里会注明）。
+
+```bash
+pip install -e ".[mediapipe]"           # 最低配置：服务端用 MediaPipe（与浏览器同一模型，但看的是截图，规则更全）
+pip install -e ".[mediapipe,rtmw]"      # 推荐：RTMW 全身 133 点 + RTMPose 手部（CPU 可跑，每张图预计 1–3 秒，未实测）
+```
+
+- 默认 `LIMBCHECK_PIPELINE=auto`：先试 `rtmw-skin-cpu`，加载不了再用 `mediapipe-skin`。启动时终端会打印用的是哪一个，页面右上角也会显示"服务端判定：已启用（…）"。
+- RTMW 首次启动会从 `download.openmmlab.com` 下载 ONNX 模型（几百 MB，存到 `~/.cache/rtmlib/hub`），之后离线可用。
+- 有 GPU 服务器时用 `LIMBCHECK_PIPELINE=rtmw-sam2-gpu`（RTMW + SAM 2.1 分割，见 `deploy/rtx`）。
+- 设为 `off` 只用浏览器端结果；页面上也可以取消勾选"服务端判定"。
 
 ## 启用大模型复核（L2）
 

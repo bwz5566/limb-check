@@ -11,6 +11,7 @@
 <header>
   <h1>远程肢体完整性检测 · 效果验证 Demo</h1>
   <span id="modelStatus" class="tag">模型加载中…</span>
+  <span id="judgeStatus" class="tag">服务端判定：检查中…</span>
   <span id="vlmStatus" class="tag">大模型复核：检查中…</span>
 </header>
 
@@ -37,10 +38,11 @@
       </label>
       <p id="strictnessDesc" class="muted small"></p>
       <label class="field inline"><input type="checkbox" id="voice" checked> 语音引导</label>
+      <label class="field inline"><input type="checkbox" id="useServer" checked> 服务端判定（高清截图交服务端模型判定，浏览器只做引导）</label>
       <label class="field inline"><input type="checkbox" id="useVlm" checked> 启用大模型复核（需在服务端配置）</label>
       <div class="consent">
         <label class="inline"><input type="checkbox" id="consent">
-          <span>我已了解并同意：本 demo 仅用于效果验证。视频只在本机浏览器内处理，只保留检测所需的几张证据截图；若启用大模型复核，这些截图会发送到所配置的模型服务。检测项为手指 / 手掌 / 手背、四肢、美甲、纹身、疤痕、发色；纹身、疤痕按招聘方的书面录用标准给出建议，发色在没有书面依据前只记录、不作判定。能明确判断的项目由系统直接给出结论，置信度不足的交人工确认；对结论有异议可申请人工复核。</span></label>
+          <span>我已了解并同意：本 demo 仅用于效果验证。视频只在本机浏览器内处理，只保留检测所需的几张证据截图；这些截图会发送到检测服务器判定，若启用大模型复核，还会发送到所配置的模型服务。检测项为手指 / 手掌 / 手背、四肢、美甲、纹身、疤痕、发色；纹身、疤痕按招聘方的书面录用标准给出建议，发色在没有书面依据前只记录、不作判定。能明确判断的项目由系统直接给出结论，置信度不足的交人工确认；对结论有异议可申请人工复核。</span></label>
       </div>
       <button id="startBtn" disabled>开始检测</button>
       <p class="muted small">请在光线充足处进行，穿短袖、露出脖子，先站到距镜头约 2–2.5 米处。颈部、手臂和手部步骤会提示你走近镜头。</p>
