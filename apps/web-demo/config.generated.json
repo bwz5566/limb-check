@@ -194,7 +194,9 @@
     },
     "contour": {
       "tip_on_mask_min": 0.5,
-      "gap_min_spread": 0.33,
+      "gap_min_spread": 0.28,
+      "gap_delta_e": 10,
+      "tip_delta_e": 10,
       "palm_on_mask_min": 0.75,
       "skin_delta_e": 20,
       "mask_dilate_px": 3

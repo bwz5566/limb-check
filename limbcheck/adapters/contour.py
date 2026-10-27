@@ -162,8 +162,24 @@ def finger_straight(pts: np.ndarray) -> dict[str, bool]:
     return {f: angle(*(pts[i] for i in (HAND_FINGER_IDS[f][0], HAND_FINGER_IDS[f][1], HAND_FINGER_IDS[f][3]))) > 145 for f in FINGERS}
 
 
-def finger_gaps(mask: np.ndarray, pts: np.ndarray, min_spread: float = 0.33) -> dict[str, bool | str | None]:
-    """相邻两指之间有没有缝隙：两指都伸直、末节中点距离 ≥ min_spread 掌长（已分开）时，两指之间应有点落在掩码外。
+def gap_contrast(lab: np.ndarray, pa: np.ndarray, pb: np.ndarray, n: int = 24) -> float | None:
+    """两指末节中点连线上，中间一半与两端（手指本身）的最大色差（亮度权重 0.5）。
+    背景颜色接近肤色（脸、米色墙、浅色衣服）时掩码分不出缝隙，但缝隙处的明暗、颜色仍与两侧手指不同；
+    被同色物体挡住或关键点画在一整块皮肤上时，整条线颜色几乎不变。"""
+    h, w = lab.shape[:2]
+    pts = [np.round(pa + t * (pb - pa)).astype(int) for t in np.linspace(0, 1, n)]
+    if not all(0 <= x < w and 0 <= y < h for x, y in pts):
+        return None
+    line = np.array([lab[y, x] for x, y in pts], dtype=float)
+    ends = np.vstack([line[:3], line[-3:]]).mean(axis=0)
+    mid = line[n // 4: 3 * n // 4] - ends
+    return float(np.sqrt((0.5 * mid[:, 0]) ** 2 + mid[:, 1] ** 2 + mid[:, 2] ** 2).max())
+
+
+def finger_gaps(mask: np.ndarray, pts: np.ndarray, min_spread: float = 0.33, lab: np.ndarray | None = None,
+                contrast_min: float | None = None) -> dict[str, bool | str | None]:
+    """相邻两指之间有没有缝隙：两指都伸直、末节中点距离 ≥ min_spread 掌长（已分开）时，两指之间应有点落在掩码外，
+    或者（传了 lab 时）两指之间的颜色明显不同于两侧手指（色差 ≥ contrast_min，背景接近肤色时靠这一条）。
     True：有缝隙；False：被别的手、肤色物体挡住，或关键点画在了别处的皮肤上（之间也是"皮肤"）；
     "closed"：两指伸直但并拢，无法确认（被遮挡的手指可能"藏"在相邻手指上）；None：有手指蜷起，不判断。"""
     palm = palm_len(pts)
@@ -184,7 +200,12 @@ def finger_gaps(mask: np.ndarray, pts: np.ndarray, min_spread: float = 0.33) -> 
             x, y = np.round(pa + t * (pb - pa)).astype(int)
             if 0 <= x < w and 0 <= y < h:
                 vals.append(bool(mask[y, x]))
-        out[f"{a}-{b}"] = None if not vals else not all(vals)
+        seen = None if not vals else not all(vals)
+        if not seen and lab is not None and contrast_min is not None:
+            c = gap_contrast(lab, pa, pb)
+            if c is not None and c >= contrast_min:
+                seen = True
+        out[f"{a}-{b}"] = seen
     return out
 
 
@@ -213,13 +234,14 @@ def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expect
     thr = th.get("tip_on_mask_min", 0.5)
     palm_thr = th.get("palm_on_mask_min", 0.7)
     findings, parts, covs, detail, unverified = [], [], [], {}, []
+    lab = rgb_to_lab(img.astype(float)) if hands and th.get("gap_delta_e") else None
     for hand in hands:
         side = hand.side or "unknown"
         mask = backend.hand_mask(img, hand, th)
         # 末节、中节都要落在掩码内：手指蜷起、被遮挡时关键点仍画出伸直的手指，其中一节会落到背景上
         cov = {f: min(tip_coverage(mask, hand.pts, f), tip_coverage(mask, hand.pts, f, segment=1)) for f in FINGERS}
         pc = palm_coverage(mask, hand.pts)
-        gaps = finger_gaps(mask, hand.pts, th.get("gap_min_spread", 0.33))
+        gaps = finger_gaps(mask, hand.pts, th.get("gap_min_spread", 0.33), lab, th.get("gap_delta_e"))
         detail[side] = {**cov, "palm": pc, "gaps": gaps}
         if pc < palm_thr:
             parts.append(f"{side}_hand.palm")

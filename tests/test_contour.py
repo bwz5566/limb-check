@@ -73,3 +73,25 @@ def test_curled_finger_drawn_extended_is_caught(thresholds):
     img = draw_hand(h.pts, skip=("index",))
     r, _ = contour_result(img, [h], SkinMask(), thresholds["contour"], expected=1)
     assert "right_hand.index" in r.parts
+
+
+def test_gap_seen_by_contrast_when_background_is_skin_like(thresholds):
+    """手挡在脸前、浅色墙前：背景颜色接近肤色，掩码分不出缝隙，但缝隙处的明暗与两侧手指不同（真人实测）。"""
+    import cv2
+    import numpy as np
+
+    h = spread_hand()
+    img = draw_hand(h.pts, bg=(135, 98, 82))           # 背景（脸）与手指同色系、暗一些：掩码当成皮肤，但明暗不同
+    p = h.pts
+    th = thresholds["contour"]
+    r, cov = contour_result(img, [h], SkinMask(), th, expected=1, open_hand=True)
+    assert all(v is True for v in cov["right"]["gaps"].values()), cov["right"]["gaps"]
+    assert r.positive is False
+    r, cov = contour_result(img, [h], SkinMask(), {**th, "gap_delta_e": None}, expected=1, open_hand=True)
+    assert any(v is False for v in cov["right"]["gaps"].values())     # 只看掩码时会误报"看不到缝隙"
+
+    # 同色物体整块挡住两指之间：整条线颜色不变，对比度也救不回来
+    img2 = draw_hand(h.pts)
+    cv2.fillPoly(img2, [np.array([p[9], p[12], p[16], p[13]]).astype(np.int32)], (205, 160, 135))
+    r, cov = contour_result(img2, [h], SkinMask(), th, expected=1, open_hand=True)
+    assert cov["right"]["gaps"]["middle-ring"] is False and r.positive is True

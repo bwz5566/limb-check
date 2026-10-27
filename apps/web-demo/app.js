@@ -240,25 +240,44 @@ function handEvidence(h) {
   const isSkinPx = (R, G, B) => { const l = toLab([R, G, B]); return Math.hypot(0.5 * (l[0] - ref[0]), l[1] - ref[1], l[2] - ref[2]) < thr; };
   // 一小块里有 ≥ 25% 的像素像皮肤就算"皮肤"（关键点常落在手指边缘，与离线掩码 + 膨胀的效果相当）；minFrac 可调
   const skin = (p, rr = r, minFrac = 0.25) => { const f = read(p.x, p.y, rr, isSkinPx); return f === null ? null : f >= minFrac; };
+  const labAt = (p, rr = r) => { const c = [0, 0, 0]; let n = 0; const f = read(p.x, p.y, rr, (R, G, B) => { c[0] += R; c[1] += G; c[2] += B; n++; return true; }); return f === null || !n ? null : toLab(c.map(v => v / n)); };
+  const dE = (a, b) => Math.hypot(0.5 * (a[0] - b[0]), a[1] - b[1], a[2] - b[2]);
+  // 两指之间的颜色与两侧手指的最大色差（与 limbcheck/adapters/contour.py 的 gap_contrast 相同）：背景接近肤色时掩码分不出缝隙，但明暗仍不同
+  const gapContrast = (pa, pb, n = 16) => {
+    const line = Array.from({ length: n }, (_, i) => labAt(lerp(pa, pb, i / (n - 1)), 1));
+    if (line.some(v => !v)) return null;
+    const ends = [0, 1, 2].map(k => (line[0][k] + line[1][k] + line[n - 2][k] + line[n - 1][k]) / 4);
+    return Math.max(...line.slice(n / 4, (3 * n) / 4).map(v => dE(v, ends)));
+  };
   const cover = pts => { const v = pts.map(p => skin(p)).filter(x => x !== null); return v.length ? v.filter(Boolean).length / v.length : 0; };
   const seg = (a, b) => cover([0.2, 0.45, 0.7].map(t => lerp(a, b, t)));
   const fingers = {};
   for (const f of FINGERS) { const ids = FINGER_IDS[f]; fingers[f] = { distal: r2(seg(lm[ids[2]], lm[ids[3]])), middle: r2(seg(lm[ids[1]], lm[ids[2]])) }; }
-  const gaps = {};
+  const gaps = {}, spread = {};
   for (const [a, b] of GAP_PAIRS) {
     if (!fingerExtended(lm, a) || !fingerExtended(lm, b)) { gaps[`${a}-${b}`] = null; continue; }   // 蜷起的手指压在掌面上，中间本来就是皮肤
     const pa = lerp(lm[FINGER_IDS[a][2]], lm[FINGER_IDS[a][3]], 0.5), pb = lerp(lm[FINGER_IDS[b][2]], lm[FINGER_IDS[b][3]], 0.5);
+    spread[`${a}-${b}`] = r2(dist(pa, pb) / palm);
     if (dist(pa, pb) < (th.gap_min_spread ?? 0.33) * palm) { gaps[`${a}-${b}`] = null; continue; }    // 两指没分开，不判断缝隙
     const v = [0.35, 0.5, 0.65].map(t => skin(lerp(pa, pb, t), Math.max(1, 0.015 * palm), 0.5)).filter(x => x !== null);   // 任一点不是皮肤即有缝隙
-    gaps[`${a}-${b}`] = v.length ? !v.every(Boolean) : null;
+    let seen = v.length ? !v.every(Boolean) : null;
+    if (!seen) { const c = gapContrast(pa, pb); if (c !== null && c >= (th.gap_delta_e ?? 10)) seen = true; }   // 或者缝隙处明暗 / 颜色与两侧手指明显不同
+    gaps[`${a}-${b}`] = seen;
   }
   const palmCov = cover([center, ...PALM_IDS.flatMap(i => [lerp(center, lm[i], 0.33), lerp(center, lm[i], 0.66)])]);
-  // 背景：伸直的四指指尖沿手指方向再外推 0.35 掌长，多数也"像皮肤"说明背景接近肤色，像素证据不可靠。
-  // 只用伸直的手指（蜷起的手指外推会落到掌面、脸上）；伸直的不足两根时不判断背景（此时本来就无法逐指确认）
+  // 背景是否可靠：伸直的四指，比较指尖末节与指尖外侧 0.35 掌长处的颜色。过半手指"看不出边界"（指尖挡在脸前、浅色墙等）
+  // → 关键点脑补到背景上也会被当成皮肤，像素证据不可靠。只用伸直的手指；伸直的不足两根时不判断
+  // 例外：伸直手指之间的缝隙全都看得到时，每根手指两侧都有边界，仍算可靠
   const ext = FINGERS.filter(f => f !== 'thumb' && fingerExtended(lm, f));
-  const bg = (ext.length >= 2 ? ext : []).map(f => { const a = lm[FINGER_IDS[f][2]], b = lm[FINGER_IDS[f][3]], L = dist(a, b) + 1e-6; return skin({ x: b.x + (b.x - a.x) / L * 0.35 * palm, y: b.y + (b.y - a.y) / L * 0.35 * palm }); }).filter(v => v !== null);
+  const bg = (ext.length >= 2 ? ext : []).map(f => {
+    const a = lm[FINGER_IDS[f][2]], b = lm[FINGER_IDS[f][3]], L = dist(a, b) + 1e-6;
+    const inside = labAt(lerp(a, b, 0.6)), outside = labAt({ x: b.x + (b.x - a.x) / L * 0.35 * palm, y: b.y + (b.y - a.y) / L * 0.35 * palm });
+    return inside && outside ? dE(inside, outside) < (th.tip_delta_e ?? 10) : null;
+  }).filter(v => v !== null);
   const bgSkin = bg.length ? bg.filter(Boolean).length / bg.length : 0;
-  return { fingers, gaps, palm: r2(palmCov), bg_skin: r2(bgSkin), reliable: bgSkin < 0.5 };
+  const gv = Object.values(gaps).filter(v => v !== null);
+  const reliable = bgSkin <= 0.5 || (gv.length >= 2 && gv.every(v => v === true));
+  return { fingers, gaps, spread, palm: r2(palmCov), bg_skin: r2(bgSkin), reliable };
 }
 // 这根手指像素上看得到：中节、末节都有足够比例落在皮肤上
 const fingerSeen = (ev, f) => !ev || !ev.reliable || (ev.fingers[f].distal >= (TH.contour?.tip_on_mask_min ?? 0.5) && ev.fingers[f].middle >= (TH.contour?.tip_on_mask_min ?? 0.5));
@@ -576,7 +595,7 @@ function handPose(want) {
         if (facing(h) !== want) return { hint: want === 'palm' ? `${name}请掌心朝向镜头` : `${name}请翻转为手背朝前` };
         const strict = now - st.start < 6000;
         if (c < needOpen(st, now)) return { hint: `${name}请把五指完全伸直张开` };      // 手指蜷着永远不算完成（超时后照常采集并交人工）
-        if (ev && !ev.reliable) { if (strict) return { hint: '背景与肤色太接近，请站到深色或纯色背景前' }; soft = '背景与肤色太接近，结果将交人工复核'; continue; }
+        if (ev && !ev.reliable) { if (strict) return { hint: bgHint(h) }; soft = '手指和背景颜色太接近，结果将交人工复核'; continue; }
         const hidden = unseenFingers(ev);
         if (hidden.length) { const t = `${name}${hidden.map(f => FINGER_CN[f]).join('、')}看不清，请张开五指、不要遮挡`; if (strict) return { hint: t }; soft = t; }
         else if (ev && notSpread(ev).length) { const t = `${name}请把五指尽量分开`; if (strict) return { hint: t }; soft = soft || t; }
@@ -792,7 +811,7 @@ const STEP_LIB = {
   backs: { title: '翻转为手背朝前', ...handPose('back') },
   flex: {
     title: '握拳 → 张开', needs: ['hands'], hold: 600,
-    text: st => st.phase ? '再把双手完全张开' : '双手用力握拳',
+    text: st => st.phase ? '再把双手完全张开，掌心朝向镜头' : '双手掌心朝向镜头，用力握拳',
     check(st, now) {
       const g = handsGate(); if (g) return { hint: g };
       for (const h of S.hands) {
@@ -812,30 +831,39 @@ const STEP_LIB = {
   // 对捏：只移动关键点就能"碰上"（手指蜷在拳里时关键点照样会画出来），所以每次接触还要满足：
   // 目标手指和拇指像素上看得到、其余三指中至少两根伸直且看得到（防握拳作弊）；每次接触留一张证据小图
   pinch: {
-    title: '拇指依次对捏', needs: ['hands'], timeoutFactor: 1.5,
-    text: () => '双手同时，用拇指依次碰食指、中指、无名指、小指的指尖，其余手指保持张开',
+    title: '拇指依次对捏', needs: ['hands'], timeoutFactor: 2,
+    // 先右手、再左手，一次只做一只手；每句提示都说全"哪只手的哪根手指"，掌心朝镜头（拇指和指尖都看得到）
+    init(st) { st.prog = { right: 0, left: 0 }; st.side = 'right'; },
+    text: st => { const n = SIDE_CN[st.side]; return `${n}掌心朝向镜头：用${n}拇指依次碰${n}的食指、中指、无名指、小指指尖`; },
     check(st) {
-      const g = handsGate(); if (g) return { hint: g };
-      st.prog ||= { right: 0, left: 0 };
-      let warn = '';
-      for (const h of S.hands) {
-        const k = st.prog[h.side]; if (k == null || k >= 4) continue;
-        const target = FINGERS[k + 1], d = dist(h.lm[4], h.lm[FINGER_IDS[target][3]]) / palmLen(h.lm);
-        st.dist = { ...st.dist, [`${SIDE_CN[h.side]}拇指-${FINGER_CN[target]}距离`]: `${r2(d)}（需 < ${TH.fingers.pinch_ratio}）` };
-        if (d >= TH.fingers.pinch_ratio) continue;
-        const ev = handEvidence(h);
-        const others = FINGERS.filter(f => f !== 'thumb' && f !== target);
-        const open = others.filter(f => fingerExtended(h.lm, f) && fingerSeen(ev, f)).length;
-        const seen = !ev || !ev.reliable || (ev.fingers[target].middle >= (TH.contour?.tip_on_mask_min ?? 0.5) && ev.fingers.thumb.distal >= (TH.contour?.tip_on_mask_min ?? 0.5));
-        if (!seen) { warn = `${SIDE_CN[h.side]}${FINGER_CN[target]}看不清，请不要遮挡`; continue; }
-        if (open < 2) { warn = `${SIDE_CN[h.side]}其余手指请保持张开`; continue; }
-        st.prog[h.side]++;
-        if (st.evidence.length < 8) { const p = h.lm[4]; st.evidence.push({ label: `${SIDE_CN[h.side]}拇指碰${FINGER_CN[target]}`, img: cropImage(p.x, p.y, 1.6 * palmLen(h.lm), 160) }); }
-      }
+      const side = st.side, name = SIDE_CN[side], k = st.prog[side], target = FINGERS[k + 1];
       st.metrics = { 右手完成: `${st.prog.right}/4`, 左手完成: `${st.prog.left}/4`, ...st.dist };
-      if (st.prog.right >= 4 && st.prog.left >= 4) { st.evidence.push({ label: '对捏完成', img: snapshot(true, handsBox(), 480, 0.8) }); return { done: true }; }
-      const side = st.prog.right < 4 ? 'right' : 'left';
-      return { hint: warn || `${SIDE_CN[side]}：拇指碰${FINGER_CN[FINGERS[st.prog[side] + 1]]}` };
+      const h = S.hands.find(x => x.side === side);
+      if (!h) return { hint: `请把${name}举到胸前，掌心朝向镜头` };
+      if (palmLen(h.lm) < TH.quality.min_hand_size * H) return { hint: '请再靠近镜头一些' };
+      if (facing(h) !== 'palm') return { hint: `${name}请掌心朝向镜头` };
+      // 碰完一根要先松开（拇指离开上一根手指），否则相邻指尖离得近，一次接触会被连续算成好几根
+      if (st.lastTarget) {
+        const away = dist(h.lm[4], h.lm[FINGER_IDS[st.lastTarget][3]]) / palmLen(h.lm);
+        if (away < 1.3 * TH.fingers.pinch_ratio) return { hint: `松开，再${`用${name}拇指碰${name}${FINGER_CN[target]}的指尖`}` };
+        st.lastTarget = null;
+      }
+      const d = dist(h.lm[4], h.lm[FINGER_IDS[target][3]]) / palmLen(h.lm);
+      st.dist = { [`${name}拇指-${FINGER_CN[target]}距离`]: `${r2(d)}（需 < ${TH.fingers.pinch_ratio}）` };
+      const ask = `用${name}拇指碰${name}${FINGER_CN[target]}的指尖`;
+      if (d >= TH.fingers.pinch_ratio) return { hint: ask };
+      // 防作弊：目标手指和拇指像素上看得到、其余三指至少一根伸直且看得到（握拳时关键点照样会画出"碰上"）
+      const ev = handEvidence(h), tipMin = TH.contour?.tip_on_mask_min ?? 0.5;
+      const seen = !ev || !ev.reliable || (ev.fingers[target].middle >= tipMin && ev.fingers.thumb.distal >= tipMin);
+      if (!seen) return { hint: ev && handOnFace(h) ? bgHint(h) : `${name}${FINGER_CN[target]}看不清，请不要遮挡` };
+      const open = FINGERS.filter(f => f !== 'thumb' && f !== target && fingerExtended(h.lm, f) && fingerSeen(ev, f)).length;
+      if (open < 1) return { hint: `${name}其余手指请张开，只用拇指碰${FINGER_CN[target]}` };
+      st.prog[side]++; st.lastTarget = target;
+      if (st.evidence.length < 8) { const p = h.lm[4]; st.evidence.push({ label: `${name}拇指碰${FINGER_CN[target]}`, img: cropImage(p.x, p.y, 1.6 * palmLen(h.lm), 160) }); }
+      if (st.prog[side] < 4) { say(`好，再碰${FINGER_CN[FINGERS[st.prog[side] + 1]]}`, true); return {}; }
+      if (side === 'right') { st.side = 'left'; st.phase = 1; st.lastTarget = null; say(`右手完成。${this.text(st)}`, true); return {}; }
+      st.evidence.push({ label: '对捏完成', img: snapshot(true, handsBox(), 480, 0.8) });
+      return { done: true };
     },
   },
   // 随机挑战：防回放录像。轮数、每轮时限来自 thresholds.yaml 的 capture 段
@@ -843,7 +871,7 @@ const STEP_LIB = {
     title: '随机手势挑战', needs: ['hands'], hold: 600,
     init(st) { st.nums = [1, 2, 3, 4].sort(() => Math.random() - 0.5).slice(0, Math.min(4, TH.capture.challenge_rounds ?? 2)); st.failed = 0; },
     timeout: st => st.nums.length * ROUND_MS + 3000,
-    text: st => `请用任意一只手伸出 ${st.nums[st.phase]} 根手指`,
+    text: st => `任意一只手，掌心朝向镜头，伸出 ${st.nums[st.phase]} 根手指`,
     check(st, now) {
       st.roundStart ??= now;
       if (now - st.roundStart > ROUND_MS) { st.metrics[`第${st.phase + 1}轮`] = '超时'; st.failed++; return nextRound(this, st, now); }
@@ -906,6 +934,7 @@ function dbgText(t, x, y, color = '#fff', size = 16) {
 function dbgDot(p, color, r = 7) { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI); ctx.fillStyle = color; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke(); }
 function debugHands() {
   const tipMin = TH.contour?.tip_on_mask_min ?? 0.5;
+  if (S.face) { const f = S.face, on = S.hands.some(handOnFace); ctx.save(); ctx.strokeStyle = on ? DBG.bad : DBG.na; ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeRect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0); ctx.restore(); dbgText(on ? '手挡在脸前' : '脸', f.x0, f.y0 + 16, on ? DBG.bad : DBG.na); }
   for (const h of S.hands) {
     const ev = handEvidence(h), lm = h.lm, palm = palmLen(lm);
     if (!ev) { dbgText('无法取样', lm[0].x, lm[0].y + 24, DBG.bad); continue; }
@@ -963,6 +992,27 @@ function readPose(r) {
   S.body = best ? { joints: Object.fromEntries(JA.map(([k, i]) => [k, toPx(best[i])])), vis: Object.fromEntries(JA.map(([k, i]) => [k, best[i].visibility ?? 1])) } : null;
 }
 
+// 脸的位置（像素框）：用姿态模型的面部 11 个点（鼻、眼、耳、嘴），按两耳 / 两眼间距外扩成整张脸
+function readFace(now) {
+  try {
+    const r = poseLm.detectForVideo(grab, now);
+    (r.segmentationMasks || []).forEach(m => { try { m.close?.(); } catch { /* 已释放 */ } });
+    const lm = r.landmarks?.[0];
+    if (!lm) { S.face = null; return; }
+    const pts = lm.slice(0, 11).filter(p => (p.visibility ?? 1) > 0.5).map(toPx);
+    if (pts.length < 4) { S.face = null; return; }
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y), w = Math.max(...xs) - Math.min(...xs);
+    S.face = { x0: Math.min(...xs) - 0.25 * w, x1: Math.max(...xs) + 0.25 * w, y0: Math.min(...ys) - 0.8 * w, y1: Math.max(...ys) + 0.45 * w };
+  } catch { S.face = null; }
+}
+// 手的指尖、末节有没有挡在脸前
+function handOnFace(h) {
+  const f = S.face; if (!f) return false;
+  return [3, 4, 7, 8, 11, 12, 15, 16, 19, 20].filter(i => { const p = h.lm[i]; return p.x > f.x0 && p.x < f.x1 && p.y > f.y0 && p.y < f.y1; }).length >= 3;
+}
+// 背景不可靠时给出能照做的提示
+const bgHint = h => (handOnFace(h) ? `${SIDE_CN[h.side] || '手'}挡在脸前了：请把双手放低到胸前，指尖不要挡住脸` : '手指和身后背景颜色太接近：请把手移到胸前衣服前面，或换到颜色较深的背景前');
+
 function readHands(r) {
   const hd = r.handedness || r.handednesses || [];
   const hands = r.landmarks.map((lm, i) => {
@@ -995,6 +1045,7 @@ function loop() {
       if (DEBUG) debugBody(step.state);
     } else { S.pose = S.body = null; S.poseCount = 0; }
     if (step.needs.includes('hands')) {
+      if (!step.needs.includes('pose') && S.frame % 4 === 0) readFace(now);   // 每 4 帧找一次脸：手挡在脸前时手和脸肤色相近，指缝、指尖都看不清
       const t = performance.now(), r = handLm.detectForVideo(grab, now); S.perf.hand.push(performance.now() - t);
       readHands(r);
       for (const h of S.hands) { draw.drawConnectors(h.raw, HandLandmarker.HAND_CONNECTIONS, { color: '#22d3ee', lineWidth: 3 }); draw.drawLandmarks(h.raw, { color: '#f97316', radius: 3 }); }
@@ -1173,9 +1224,11 @@ window.limbcheckDemo = {
   async checkHandsImage(src, view = 'backs') {
     const im = new Image(); im.src = src; await im.decode();
     W = im.naturalWidth; H = im.naturalHeight; grab.width = W; grab.height = H; gctx.drawImage(im, 0, 0);
-    readHands(handLm.detectForVideo(grab, (S.testTs = Math.max((S.testTs || 0) + 100, performance.now()))));
+    const ts = (S.testTs = Math.max((S.testTs || 0) + 100, performance.now()));
+    readFace(ts);
+    readHands(handLm.detectForVideo(grab, ts));
     const exp = VIEWS[view]?.expected_hands || 2;
-    return { hands: S.hands.map(h => ({ side: h.side, facing: facing(h), extended: extendedCount(h.lm), evidence: handEvidence(h) })), keypoints: fingersResult(S.hands, exp), evidence: fingersEvidenceResult(S.hands, exp, ['palms', 'backs'].includes(view)) };
+    return { hands: S.hands.map(h => ({ side: h.side, facing: facing(h), extended: extendedCount(h.lm), on_face: handOnFace(h), evidence: handEvidence(h) })), face: S.face, keypoints: fingersResult(S.hands, exp), evidence: fingersEvidenceResult(S.hands, exp, ['palms', 'backs'].includes(view)) };
   },
 };
 

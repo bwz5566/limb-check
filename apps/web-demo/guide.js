@@ -125,20 +125,21 @@ const GUIDES = {
   palms: () => ({ svg: twoHands('palm'), caption: '双手掌心朝镜头，五指张开' }),
   backs: () => ({ svg: twoHands('back'), caption: '手背朝镜头，五指张开' }),
   flex: st => st.phase
-    ? { key: 'open', svg: twoHands('palm'), caption: '再把双手完全张开' }
-    : { key: 'fist', svg: twoHands('palm', { ext: [] }), caption: '双手用力握拳' },
+    ? { key: 'open', svg: twoHands('palm'), caption: '再把双手完全张开，掌心朝镜头' }
+    : { key: 'fist', svg: twoHands('palm', { ext: [] }), caption: '双手掌心朝镜头，用力握拳' },
   pinch: st => {
-    const p = st.prog || { right: 0, left: 0 }, tgt = s => (p[s] < 4 ? FINGERS[p[s] + 1] : null);
-    const l = tgt('left'), r = tgt('right');
+    // 一次只做一只手（先右后左）：只画当前这只手，掌心朝镜头（镜像画面里右手在右边、拇指朝内）
+    const side = st.side || 'right', p = st.prog || { right: 0, left: 0 }, k = p[side] ?? 0, f = FINGERS[Math.min(k, 3) + 1];
+    const name = side === 'right' ? '右手' : '左手';
     return {
-      key: `${p.left}-${p.right}`,
-      svg: twoHands('palm', { left: { pinch: l, label: l ? ['左手', `拇指碰${FINGER_CN[l]}`] : ['左手', '完成 ✓'], labelHl: !!l }, right: { pinch: r, label: r ? ['右手', `拇指碰${FINGER_CN[r]}`] : ['右手', '完成 ✓'], labelHl: !!r } }),
-      caption: '拇指依次碰食指、中指、无名指、小指，其余手指张开',
+      key: `${side}-${k}`,
+      svg: svg(hand(60, 62, side === 'right' ? -1 : 1, { pinch: f, label: [name, `拇指碰${FINGER_CN[f]}`], labelHl: true }) + text(side === 'right' ? 112 : 8, 30, side === 'right' ? '右' : '左', 14, OR, side === 'right' ? 'end' : 'start'), '0 16 120 122'),
+      caption: `${name}掌心朝镜头，用${name}拇指碰${name}${FINGER_CN[f]}指尖（${k}/4）`,
     };
   },
   challenge: st => {
     const n = st.nums?.[st.phase] ?? 1, ext = ['index', 'middle', 'ring', 'little'].slice(0, n);
-    return { key: String(n), svg: svg(hand(52, 62, -1, { ext }) + text(98, 52, String(n), 32, OR) + text(98, 68, '根手指', 9, OR), '0 16 120 100'), caption: `任意一只手伸出 ${n} 根手指` };
+    return { key: String(n), svg: svg(hand(52, 62, -1, { ext }) + text(98, 52, String(n), 32, OR) + text(98, 68, '根手指', 9, OR), '0 16 120 100'), caption: `任意一只手，掌心朝镜头，伸出 ${n} 根手指` };
   },
 };
 
