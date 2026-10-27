@@ -17,6 +17,7 @@ viz/
 reports/
 *.demo.json
 limbcheck-S*.json
+apps/web-demo/records/
 
 .DS_Store
 Thumbs.db

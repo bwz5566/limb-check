@@ -149,9 +149,15 @@
     "version": 1,
     "capture": {
       "hold_ms": 1000,
-      "step_timeout_ms": 25000,
-      "challenge_round_ms": 5000,
-      "challenge_rounds": 2
+      "step_timeout_ms": 30000,
+      "challenge_round_ms": 7000,
+      "challenge_rounds": 2,
+      "prep_ms": 4000,
+      "phase_prep_ms": 2000,
+      "hint_stable_ms": 800,
+      "hint_grace_ms": 4000,
+      "hint_interval_ms": 6000,
+      "hint_repeat_ms": 12000
     },
     "quality": {
       "brightness": [

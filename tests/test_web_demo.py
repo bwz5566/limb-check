@@ -178,3 +178,40 @@ def test_analyze_runs_python_pipeline(server, base_url, monkeypatch):
     assert d["l1"]["fingers"]["positive"] is None and d["l1"]["fingers"]["quality_ok"] is False
     code, d = _post(base_url + "/api/analyze", {"view": "backs", "image": "data:image/jpeg;base64,AAAA"})
     assert code == 400
+
+
+def test_records_append_and_summary(server, tmp_path):
+    def session(sid, steps, overall="pass", job="line"):
+        return {"type": "session", "session_id": sid, "job": {"id": job, "name": job}, "duration_ms": 90000, "overall": overall,
+                "steps": steps, "checks": {"fingers": {"decision": overall, "mode": "judge"}}}
+
+    ok = {"id": "palms", "title": "双手掌心朝前", "status": "pass", "ms": 8000, "first_ok_ms": 5000, "hints": []}
+    stuck = {"id": "pinch", "title": "拇指依次对捏", "status": "timeout", "ms": 30000, "note": "超时",
+             "hints": [{"text": "右手：拇指碰食指", "ms": 20000}, {"text": "请把两只手分开", "ms": 3000}]}
+    server.append_record(session("S1", [ok, stuck], "review"), tmp_path)
+    server.append_record(session("S2", [ok, {**stuck, "status": "pass", "hints": [{"text": "右手：拇指碰食指", "ms": 4000}]}]), tmp_path)
+    server.append_record(session("S2", [ok, {**stuck, "status": "pass", "hints": []}]), tmp_path)   # 重拍后的新记录覆盖旧的
+    server.append_record({"type": "feedback", "session_id": "S1", "rating": "confusing", "steps": ["pinch"], "note": "不知道用哪只手"}, tmp_path)
+    with pytest.raises(ValueError):
+        server.append_record({"type": "nope", "session_id": "S3"}, tmp_path)
+    with pytest.raises(ValueError):
+        server.append_record({"type": "session"}, tmp_path)
+
+    d = server.summarize_records(server.load_records(tmp_path))
+    assert d["sessions"] == 2 and d["feedback_n"] == 1 and d["overall"] == {"review": 1, "pass": 1}
+    pinch = d["steps"][0]                      # 完成率最低的排在最前
+    assert pinch["id"] == "pinch" and pinch["pass_rate"] == 0.5 and pinch["confusing"] == 1
+    assert pinch["top_hints"][0] == {"text": "右手：拇指碰食指", "total_s": 20.0, "sessions": 1}
+    assert d["feedback"]["recent"][0]["note"] == "不知道用哪只手"
+    assert server.summarize_records(server.load_records(tmp_path), job="warehouse")["sessions"] == 0
+
+
+def test_records_endpoints(server, base_url, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "RECORDS_DIR", tmp_path)
+    code, d = _post(base_url + "/api/records", {"type": "session", "session_id": "S9", "steps": [], "job": {"id": "line"}})
+    assert code == 200 and d["ok"]
+    code, d = _post(base_url + "/api/records", {"type": "session"})
+    assert code == 400
+    with urllib.request.urlopen(base_url + "/api/records/summary?days=7", timeout=10) as r:
+        d = json.loads(r.read())
+    assert d["sessions"] == 1 and d["dir"] == str(tmp_path)

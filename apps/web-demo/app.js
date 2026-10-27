@@ -3,6 +3,7 @@
 // 仲裁：server.py 复用 limbcheck.arbiter，与离线评测同一套规则。
 // 阈值、岗位、检测项、视角都来自 configs/（经 `limbcheck export-web-config` 生成 config.generated.json），本文件不写死。
 import { FilesetResolver, PoseLandmarker, HandLandmarker, DrawingUtils } from './vendor/vision_bundle.mjs';
+import { guideFor } from './guide.js';
 
 const Q = new URLSearchParams(location.search);
 const FAST = Q.has('fast');          // 自测用：缩短超时
@@ -12,7 +13,7 @@ const SRC_KP = 'L1:mediapipe-web', SRC_NAILS = 'L1:deltaE';
 
 // ---------- 配置（运行时从服务端读取） ----------
 let WEB, TH, CHECKS, VIEWS, JOBS, VLM = { vlm: false, model: null };
-let HOLD_MS, STEP_TIMEOUT_MS, ROUND_MS;
+let HOLD_MS, STEP_TIMEOUT_MS, ROUND_MS, PACE;
 
 const FINGERS = ['thumb', 'index', 'middle', 'ring', 'little'];
 const FINGER_CN = { thumb: '拇指', index: '食指', middle: '中指', ring: '无名指', little: '小指' };
@@ -521,8 +522,9 @@ function requestReview(view, images, meta) {
 function say(text, force = false) {
   if (!$('#voice').checked || !('speechSynthesis' in window) || !text) return;
   const now = performance.now();
-  if (!force && text === S.lastSpoken.text && now - S.lastSpoken.at < 6000) return;
-  if (!force && now - S.lastSpoken.at < 3500) return;
+  if (!force && (speechSynthesis.speaking || speechSynthesis.pending)) return;     // 不打断正在播的说明
+  if (!force && text === S.lastSpoken.text && now - S.lastSpoken.at < PACE.hint_repeat_ms) return;
+  if (!force && now - S.lastSpoken.at < PACE.hint_interval_ms) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 1.05;
   speechSynthesis.speak(u);
@@ -854,7 +856,7 @@ const STEP_LIB = {
   },
 };
 function nextRound(step, st, now) {
-  if (st.phase + 1 < st.nums.length) { st.phase++; st.roundStart = now; st.holdStart = null; say(step.text(st), true); $('#banner').textContent = step.text(st); return { done: false }; }
+  if (st.phase + 1 < st.nums.length) { st.phase++; st.roundStart = null; st.holdStart = null; say(step.text(st), true); $('#banner').textContent = step.text(st); return { done: false }; }
   st.metrics['挑战数字'] = st.nums.join(',');
   return st.failed ? { done: true, status: 'review', note: `${st.failed} 轮未在时限内完成，疑似回放或配合不足` } : { done: true };
 }
@@ -1006,8 +1008,45 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+// 每步开始前（及同一步换动作时）停顿：放大示意图、倒数，不检测、不催促；超时从停顿结束后算
+function pauseStep(st, now, ms, first = false) {
+  st.readyAt = now + ms;
+  st.start = first ? now + ms : st.start + ms;
+}
+
+function showGuide(step, st, now) {
+  const el = $('#guide'), g = guideFor(step.id, st), prep = st.readyAt && now < st.readyAt;
+  if (!g) { el.hidden = true; return; }
+  el.hidden = false;
+  if (g.key !== el.dataset.key) {
+    el.dataset.key = g.key;
+    el.querySelector('.g-svg').innerHTML = g.svg;
+    el.querySelector('.g-cap').textContent = g.caption;
+  }
+  el.classList.toggle('big', !!prep && !st.phasePause);
+  el.querySelector('.g-count').textContent = prep ? (st.phasePause ? '准备…' : `看清动作，${Math.ceil((st.readyAt - now) / 1000)} 秒后开始`) : '';
+}
+
+// 提示防抖：同一条提示持续 hint_stable_ms 才显示；检测开始 hint_grace_ms 内只显示文字不念；记录每条提示累计出现的时长（成功 / 失败记录里看卡在哪）
+function showHint(st, hint, now, speak) {
+  hint = hint || '';
+  if (hint !== st.hintCand) { st.hintCand = hint; st.hintSince = now; }
+  const dt = Math.min(now - (st.lastTick ?? now), 1000); st.lastTick = now;
+  if (hint && speak) st.hintLog[hint] = (st.hintLog[hint] || 0) + dt;
+  if (!hint) { $('#hint').textContent = ''; return; }
+  if (now - st.hintSince < PACE.hint_stable_ms) return;
+  $('#hint').textContent = hint;
+  if (speak && now - (st.readyAt ?? st.start) >= PACE.hint_grace_ms) say(hint);
+}
+
 function runStep(step, now) {
   const st = step.state;
+  now = performance.now();   // 推理可能很慢（首帧要编译模型），计时一律用当前时间
+  if (!st.began) { st.began = true; pauseStep(st, now, PACE.prep_ms, true); }   // 从这一步第一帧画面开始倒数（摄像头启动慢时不会把倒数吃掉）
+  if (st.phase !== st.lastPhase) { st.lastPhase = st.phase; st.phasePause = true; pauseStep(st, now, PACE.phase_prep_ms); }
+  showGuide(step, st, now);
+  if (st.readyAt && now < st.readyAt) { setHold(0); $('#hint').textContent = ''; st.lastTick = now; return; }
+  st.phasePause = false;
   const res = step.check(st, now) || {};
   if (res.done) return finish(step, res.status || 'pass', res.note);
   if (res.ok) {
@@ -1021,8 +1060,8 @@ function runStep(step, now) {
       $('#banner').textContent = `${S.stepIdx + 1}/${S.steps.length} ${step.text(st)}`;
     }
   } else { st.holdStart = null; setHold(0); }
-  $('#hint').textContent = res.hint || '';
-  if (!res.ok && res.hint) say(res.hint);
+  if (res.ok) st.firstOkMs ??= Math.round(now - st.start);
+  showHint(st, res.hint, now, !res.ok);
   $('#metrics').textContent = Object.entries(st.metrics).map(([k, v]) => `${k}: ${v}`).join('\n');
   const limit = step.timeout ? step.timeout(st) : STEP_TIMEOUT_MS * (step.timeoutFactor || 1);
   if (now - st.start > limit) {
@@ -1033,7 +1072,8 @@ function runStep(step, now) {
 
 function finish(step, status, note) {
   const st = step.state;
-  S.results.push({ id: step.id, title: step.title, status, note: note || '', ms: Math.round(performance.now() - st.start), metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails, seq: st.seq });
+  const hints = Object.entries(st.hintLog || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([text, ms]) => ({ text, ms: Math.round(ms) }));
+  S.results.push({ id: step.id, title: step.title, status, note: note || '', ms: Math.max(0, Math.round(performance.now() - st.start)), first_ok_ms: st.firstOkMs ?? null, hints, metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails, seq: st.seq });
   document.querySelectorAll('#stepList li')[S.stepIdx].className = status;
   nextStep();
 }
@@ -1041,9 +1081,9 @@ function finish(step, status, note) {
 function nextStep() {
   S.stepIdx++;
   setHold(0); $('#hint').textContent = ''; $('#metrics').textContent = '';
-  if (S.stepIdx >= S.steps.length) return endRun();
-  const step = S.steps[S.stepIdx];
-  step.state = { start: performance.now(), phase: 0, metrics: {}, evidence: [] };
+  if (S.stepIdx >= S.steps.length) { $('#guide').hidden = true; return endRun(); }
+  const step = S.steps[S.stepIdx], now = performance.now();
+  step.state = { start: now, phase: 0, lastPhase: 0, metrics: {}, evidence: [], hintLog: {} };
   step.init?.(step.state);
   document.querySelectorAll('#stepList li').forEach((li, i) => li.classList.toggle('active', i === S.stepIdx));
   const prev = S.steps[S.stepIdx - 1];
@@ -1075,7 +1115,55 @@ async function endRun() {
   S.reviewsDone = reviews; S.arb = arb;
   renderReport();
   $('#banner').textContent = '检测完成，报告见下方';
+  await saveRecord({ type: 'session', ...sessionRecord() });
   window.__done = true;
+}
+
+// ---------- 检测记录：每次检测存一条（不含图片），用于统计哪些步骤容易失败、卡在哪个提示；统计见 records.html ----------
+function sessionRecord() {
+  const rows = requirementRows(), v = readValidation();
+  return {
+    session_id: S.sessionId, at: S.startedAt, job: { id: S.job.id, name: S.job.name }, strictness: S.strictness,
+    duration_ms: S.durationMs, retakes: S.retakes || 0,
+    client: { ua: navigator.userAgent.slice(0, 200), video: { w: W, h: H }, fps: perfSummary().fps, delegate },
+    config: { server_pipeline: serverJudgeOn() ? VLM.server_judge.pipeline : null, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null, thresholds_version: TH.version, prompt_version: WEB.prompt_version, fast: FAST },
+    steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note, ms: r.ms, first_ok_ms: r.first_ok_ms, hints: r.hints || [] })),
+    checks: Object.fromEntries(Object.entries(S.arb.by_check || {}).map(([c, e]) => [c, { decision: e.decision, mode: e.mode }])),
+    overall: worst(rows.filter(r => r.mode === 'judge').map(r => r.decision)),
+    server_errors: (S.analysesDone || []).filter(a => a.errors?.length).map(a => `${a.view}: ${a.errors.join('；')}`).slice(0, 10),
+    validation: v.validation ? { subject_id: v.subject_id, truth: v.truth, meta: v.meta } : null,
+  };
+}
+
+async function saveRecord(rec) {
+  try {
+    const r = await fetch('/api/records', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rec) });
+    return r.ok;
+  } catch { return false; }   // 没有用 server.py 启动时记录不了，不影响检测
+}
+
+function feedbackBlock() {
+  const opts = [['accurate', '结果准确'], ['false_alarm', '有误判（正常被判有问题）'], ['missed', '有漏判（有问题没查出）'], ['confusing', '步骤看不懂 / 太难做'], ['other', '其他']];
+  return `<h3>这次检测怎么样？</h3>
+  <div id="feedback" class="feedback">
+    <div class="fb-opts">${opts.map(([k, t]) => `<label class="inline"><input type="radio" name="fbRating" value="${k}"> ${t}</label>`).join('')}</div>
+    <p class="muted small">哪些步骤有问题（看不懂、做不到、判错了）？</p>
+    <div class="fb-steps">${S.results.map(r => `<label class="inline small"><input type="checkbox" value="${esc(r.id)}"> ${esc(r.title)}</label>`).join('')}</div>
+    <label class="field">补充说明<input id="fbNote" placeholder="如：拇指对捏那步不知道先用哪只手"></label>
+    <button id="fbBtn" class="fb-btn">提交反馈</button> <span id="fbMsg" class="muted small"></span>
+  </div>`;
+}
+
+function bindFeedback() {
+  const btn = $('#fbBtn'); if (!btn) return;
+  btn.onclick = async () => {
+    const rating = document.querySelector('input[name=fbRating]:checked')?.value;
+    if (!rating) { $('#fbMsg').textContent = '请先选一项'; return; }
+    const steps = [...document.querySelectorAll('#feedback .fb-steps input:checked')].map(i => i.value);
+    const ok = await saveRecord({ type: 'feedback', session_id: S.sessionId, job: S.job.id, rating, steps, note: $('#fbNote').value.slice(0, 1000) });
+    $('#fbMsg').textContent = ok ? '已提交，谢谢！可在“检测记录”页查看汇总' : '提交失败（需要用 server.py 启动）';
+    if (ok) btn.disabled = true;
+  };
 }
 
 // 自动化测试与调试用
@@ -1225,7 +1313,7 @@ function renderReport() {
   ${frameBlock}
   <h3>分步结果</h3>
   <table><tr><th>步骤</th><th>结果</th><th>用时</th><th>指标</th><th>证据</th></tr>
-  ${S.results.map(r => `<tr><td>${esc(r.title)}</td><td class="${STATUS[r.status][1]}">${STATUS[r.status][0]}${r.note ? `<br><span class="muted small">${esc(r.note)}</span>` : ''}${r.flags.map(f => `<br><span class="s-review small">${esc(f)}</span>`).join('')}</td><td>${(r.ms / 1000).toFixed(1)} 秒</td><td class="small">${Object.entries(r.metrics).map(([k, x]) => `${esc(k)}: ${esc(x)}`).join('<br>')}</td><td><div class="thumbs">${r.evidence.map(e => `<img src="${e.img}" title="${esc(e.label)}">`).join('')}</div></td></tr>`).join('')}
+  ${S.results.map(r => `<tr><td>${esc(r.title)}</td><td class="${STATUS[r.status][1]}">${STATUS[r.status][0]}${r.note ? `<br><span class="muted small">${esc(r.note)}</span>` : ''}${r.flags.map(f => `<br><span class="s-review small">${esc(f)}</span>`).join('')}</td><td>${(r.ms / 1000).toFixed(1)} 秒${r.hints?.length ? `<br><span class="muted small">卡在：${r.hints.slice(0, 2).map(h => `${esc(h.text)}（${(h.ms / 1000).toFixed(0)} 秒）`).join('；')}</span>` : ''}</td><td class="small">${Object.entries(r.metrics).map(([k, x]) => `${esc(k)}: ${esc(x)}`).join('<br>')}</td><td><div class="thumbs">${r.evidence.map(e => `<img src="${e.img}" title="${esc(e.label)}">`).join('')}</div></td></tr>`).join('')}
   </table>
   <h3>手指分析（L1）</h3>
   <p class="muted small">比例 = 该指长度 / 中指长度。关键点模型在手指缺失时可能“脑补”出不存在的点，所以需要 L2 和人工交叉复核。</p>
@@ -1235,10 +1323,12 @@ function renderReport() {
   <h3>端侧性能</h3>
   <p class="small">姿态推理 P50/P95：${perf.pose_ms.p50 ?? '—'} / ${perf.pose_ms.p95 ?? '—'} 毫秒 · 手部推理 P50/P95：${perf.hand_ms.p50 ?? '—'} / ${perf.hand_ms.p95 ?? '—'} 毫秒 · 帧率 ${perf.fps ?? '—'} · ${delegate} · ${W}×${H}</p>
   ${truthBlock}
+  ${feedbackBlock()}
   <div class="actions"><button id="dlBtn">导出报告 JSON（可导入离线评测）</button><button class="ghost" onclick="location.reload()">重新检测</button></div>
   <p class="muted small">导出后运行：<code>limbcheck import-demo 报告.json -o data/demo</code>，再 <code>limbcheck score --data data/demo --run runs/demo</code> 计算指标；也可用 <code>limbcheck eval --data data/demo</code> 让离线模型重跑这些截图做对比。验证标注可在右侧面板修改后再导出。</p>`;
   el.hidden = false;
   el.scrollIntoView({ behavior: 'smooth' });
+  bindFeedback();
   const rt = $('#retakeBtn');
   if (rt) rt.onclick = () => retake(JSON.parse(rt.dataset.views));
   $('#dlBtn').onclick = () => {
@@ -1340,6 +1430,8 @@ async function loadConfig() {
   HOLD_MS = FAST ? 500 : TH.capture.hold_ms;
   STEP_TIMEOUT_MS = FAST ? 7000 : TH.capture.step_timeout_ms;
   ROUND_MS = FAST ? 2500 : TH.capture.challenge_round_ms;
+  const c = TH.capture, d = (k, v) => (FAST ? 0 : c[k] ?? v);
+  PACE = { prep_ms: d('prep_ms', 4000), phase_prep_ms: d('phase_prep_ms', 2000), hint_stable_ms: d('hint_stable_ms', 800), hint_grace_ms: d('hint_grace_ms', 4000), hint_interval_ms: c.hint_interval_ms ?? 6000, hint_repeat_ms: c.hint_repeat_ms ?? 12000 };
 }
 
 function showStrictness() {

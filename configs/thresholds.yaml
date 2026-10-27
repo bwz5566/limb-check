@@ -5,9 +5,16 @@ version: 1
 
 capture:
   hold_ms: 1000              # 动作保持多久算到位
-  step_timeout_ms: 25000     # 单步超时
-  challenge_round_ms: 5000   # 随机手势挑战每轮时限
+  step_timeout_ms: 30000     # 单步超时（不含开始前看示意图的时间）
+  challenge_round_ms: 7000   # 随机手势挑战每轮时限
   challenge_rounds: 2
+  # 节奏（实测反馈"还没看清要做什么就一直在催促"）
+  prep_ms: 4000              # 每步开始前：放大显示动作示意图并倒数，这段时间不检测、不催促
+  phase_prep_ms: 2000        # 同一步换下一个动作（如侧平举 → 上举）时的停顿
+  hint_stable_ms: 800        # 同一条提示持续这么久才显示（避免提示来回闪）
+  hint_grace_ms: 4000        # 检测开始后这么久内只显示文字提示，不用语音催
+  hint_interval_ms: 6000     # 两次语音提示的最短间隔；语音没播完不会被新提示打断
+  hint_repeat_ms: 12000      # 同一句提示的最短重复间隔
 
 quality:
   brightness: [60, 215]      # 画面平均亮度（0–255）允许范围

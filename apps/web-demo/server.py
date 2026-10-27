@@ -17,6 +17,7 @@
   LIMBCHECK_PIPELINE  服务端判定用的流水线（configs/pipelines/ 下的名字或 yaml 路径）；
                 默认 auto：先试 rtmw-skin-cpu（需 pip install -e ".[rtmw]"，首次运行下载模型），不行再用 mediapipe-skin；
                 设为 off 则只用浏览器端结果
+  LIMBCHECK_RECORDS_DIR  检测记录（每次检测每一步成功 / 失败、卡在哪个提示、使用者反馈）保存目录，默认 apps/web-demo/records/
   PORT          默认 8000
   HOST          默认 127.0.0.1（局域网内用手机访问时设为 0.0.0.0，但浏览器只允许 https 或 localhost 打开摄像头）
 """
@@ -25,8 +26,11 @@ from __future__ import annotations
 import json
 import os
 import sys
+import statistics
 import threading
 import time
+from collections import Counter
+from datetime import datetime, timedelta
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -182,6 +186,118 @@ def decode_image(data: str):
 
 JUDGE = ServerJudge()
 
+# ---------- 检测记录：每次检测一行 JSON（不含图片），用来统计哪些步骤容易失败、卡在哪个提示、哪里需要优化 ----------
+RECORDS_DIR = Path(os.environ.get("LIMBCHECK_RECORDS_DIR") or ROOT / "records")
+RECORD_TYPES = ("session", "feedback")
+FEEDBACK_CN = {"accurate": "结果准确", "false_alarm": "有误判（正常被判有问题）", "missed": "有漏判（有问题没查出）",
+               "confusing": "步骤看不懂 / 太难做", "other": "其他"}
+_records_lock = threading.Lock()
+
+
+def append_record(rec: dict, directory: Path | None = None) -> Path:
+    if rec.get("type") not in RECORD_TYPES:
+        raise ValueError(f"type 只能是 {RECORD_TYPES}")
+    sid = rec.get("session_id")
+    if not isinstance(sid, str) or not 0 < len(sid) <= 64:
+        raise ValueError("缺少 session_id")
+    rec = {**rec, "server_at": datetime.now().isoformat(timespec="seconds")}
+    d = directory or RECORDS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{datetime.now():%Y-%m}.jsonl"
+    line = json.dumps(rec, ensure_ascii=False)
+    if len(line) > 512 * 1024:
+        raise ValueError("记录过大（记录里不应包含图片）")
+    with _records_lock, path.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    return path
+
+
+def load_records(directory: Path | None = None, days: int | None = None) -> list[dict]:
+    d = directory or RECORDS_DIR
+    since = (datetime.now() - timedelta(days=days)).isoformat() if days else ""
+    rows = []
+    for path in sorted(d.glob("*.jsonl")) if d.exists() else []:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("server_at", "") >= since:
+                rows.append(r)
+    return rows
+
+
+def summarize_records(rows: list[dict], job: str | None = None) -> dict:
+    """按步骤统计完成率、用时、最常卡住的提示；按检测项统计结论分布；汇总使用者反馈。
+    同一会话重拍后会再存一条，只取最后一条。"""
+    sessions: dict = {}
+    feedback = []
+    for r in rows:
+        if r.get("type") == "session":
+            sessions[r["session_id"]] = r
+        elif r.get("type") == "feedback":
+            feedback.append(r)
+    ss = [s for s in sessions.values() if not job or (s.get("job") or {}).get("id") == job]
+    keep = {s["session_id"] for s in ss}
+    feedback = [f for f in feedback if not job or f["session_id"] in keep]
+    steps: dict = {}
+    for s in ss:
+        for st in s.get("steps") or []:
+            e = steps.setdefault(st["id"], {"id": st["id"], "title": st.get("title") or st["id"], "n": 0, "status": Counter(),
+                                            "ms": [], "first_ok_ms": [], "hints": Counter(), "hint_sessions": Counter(),
+                                            "skipped": 0, "confusing": 0})
+            e["n"] += 1
+            e["status"][st.get("status") or "?"] += 1
+            if st.get("ms") is not None:
+                e["ms"].append(st["ms"])
+            if st.get("first_ok_ms") is not None:
+                e["first_ok_ms"].append(st["first_ok_ms"])
+            if "手动跳过" in (st.get("note") or ""):
+                e["skipped"] += 1
+            for h in st.get("hints") or []:
+                e["hints"][h["text"]] += h.get("ms") or 0
+                e["hint_sessions"][h["text"]] += 1
+    for f in feedback:
+        for sid in f.get("steps") or []:
+            if sid in steps:
+                steps[sid]["confusing"] += 1
+
+    def med(xs):
+        return round(statistics.median(xs) / 1000, 1) if xs else None
+
+    step_rows = []
+    for e in steps.values():
+        n = e["n"]
+        step_rows.append({
+            "id": e["id"], "title": e["title"], "n": n,
+            "pass_rate": round(e["status"]["pass"] / n, 3) if n else None,
+            "status": dict(e["status"]), "skipped": e["skipped"], "confusing": e["confusing"],
+            "median_s": med(e["ms"]), "median_first_ok_s": med(e["first_ok_ms"]),
+            "top_hints": [{"text": t, "total_s": round(ms / 1000, 1), "sessions": e["hint_sessions"][t]}
+                          for t, ms in e["hints"].most_common(3)],
+        })
+    step_rows.sort(key=lambda r: (r["pass_rate"] if r["pass_rate"] is not None else 1, -r["n"]))
+    checks: dict = {}
+    for s in ss:
+        for c, v in (s.get("checks") or {}).items():
+            checks.setdefault(c, Counter())[v.get("decision") or "none"] += 1
+    recent = sorted(ss, key=lambda s: s.get("server_at", ""), reverse=True)[:30]
+    return {
+        "sessions": len(ss), "feedback_n": len(feedback),
+        "from": min((s.get("server_at", "") for s in ss), default=None), "to": max((s.get("server_at", "") for s in ss), default=None),
+        "jobs": dict(Counter((s.get("job") or {}).get("name") or "?" for s in ss)),
+        "overall": dict(Counter(s.get("overall") or "none" for s in ss)),
+        "median_duration_s": med([s["duration_ms"] for s in ss if s.get("duration_ms")]),
+        "steps": step_rows, "checks": {c: dict(v) for c, v in checks.items()},
+        "feedback": {"by_rating": {FEEDBACK_CN.get(k, k): v for k, v in Counter(f.get("rating") for f in feedback).items()},
+                     "recent": [{"session_id": f["session_id"], "at": f.get("server_at"), "rating": FEEDBACK_CN.get(f.get("rating"), f.get("rating")),
+                                 "steps": f.get("steps") or [], "note": f.get("note") or ""} for f in feedback[-30:][::-1]]},
+        "recent": [{"session_id": s["session_id"], "at": s.get("server_at"), "job": (s.get("job") or {}).get("name"),
+                    "overall": s.get("overall"), "duration_s": round((s.get("duration_ms") or 0) / 1000),
+                    "failed_steps": [st.get("title") or st["id"] for st in s.get("steps") or [] if st.get("status") != "pass"]}
+                   for s in recent],
+    }
+
 
 def mode_of(job: dict | None, check: str) -> str:
     if job is None:
@@ -305,6 +421,13 @@ class Handler(SimpleHTTPRequestHandler):
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_GET(self):
+        if self.path.startswith("/api/records/summary"):
+            from urllib.parse import parse_qs, urlparse
+
+            q = parse_qs(urlparse(self.path).query)
+            days = int(q["days"][0]) if q.get("days", [""])[0].isdigit() else None
+            return self._json(200, {**summarize_records(load_records(days=days), (q.get("job") or [None])[0] or None),
+                                    "dir": str(RECORDS_DIR)})
         if self.path.startswith("/api/config"):
             return self._json(200, {
                 "vlm": CLIENT is not None, "model": CLIENT.model if CLIENT else None,
@@ -345,6 +468,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(400, {"error": str(e)})
             except RuntimeError as e:
                 return self._json(503, {"error": str(e)})
+        if self.path == "/api/records":
+            try:
+                append_record(req)
+            except ValueError as e:
+                return self._json(400, {"error": str(e)})
+            return self._json(200, {"ok": True})
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
             out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"))
