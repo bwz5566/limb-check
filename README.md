@@ -66,7 +66,7 @@ python server.py              # Windows 双击 start.bat，macOS 双击 start.co
 # 用 Chrome / Edge 打开 http://localhost:8000
 ```
 
-启用大模型复核：启动前设置 `VLM_BASE_URL` 和 `VLM_MODEL`（内网 Qwen-VL），或只设 `VLM_API_KEY`（默认阿里云百炼 qwen-vl-max）。
+启用大模型复核：启动前设置 `VLM_BASE_URL` 和 `VLM_MODEL`（内网 Qwen-VL），或只设 `VLM_API_KEY`（默认阿里云百炼 qwen3.7-plus）。
 详见 [apps/web-demo/README.md](apps/web-demo/README.md)。勾选页面右侧的“验证模式”可以记录受检者真实情况，导出后用于计算指标。
 
 ### 2. 离线评测

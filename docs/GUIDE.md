@@ -170,7 +170,7 @@
 | ONNX Runtime | 通用的模型推理引擎，CPU、CUDA 都能跑 |
 | SAM 2 / SAM 2.1 | Meta 的“分割一切”模型：给几个提示点，它分割出点所在的物体。`hiera-tiny` 是最小的版本。本项目用它做手部掩码 |
 | 提示点（point prompt） | 告诉 SAM “这些点属于目标”。本项目给手腕、食指到小指的指根和掌心中点 |
-| VLM（视觉大模型） | 能看图回答问题的大模型，本项目用 Qwen-VL 系列（Qwen3-VL-8B / 32B、Qwen2.5-VL-72B，或百炼的 qwen-vl-max） |
+| VLM（视觉大模型） | 能看图回答问题的大模型，本项目用 Qwen-VL 系列（Qwen3-VL-8B / 32B、Qwen2.5-VL-72B，或百炼的 qwen3.7-plus / qwen3.8-max） |
 | OpenAI 兼容接口 | 请求格式与 OpenAI 的 `/v1/chat/completions` 相同。vLLM、vLLM-Ascend、百炼、Ollama 都支持，所以切换模型只需改地址和模型名 |
 | `temperature` | 采样随机性。本项目设为 0，同一张图尽量给出同样的答案 |
 | JSON Schema / 结构化输出 | 在请求里附一份 JSON 格式说明（`response_format`），服务端在生成时强制输出合法 JSON。vLLM 支持；不支持的服务会返回 400，客户端自动退回普通模式 |
@@ -790,7 +790,7 @@ pe = 0.12 × 0.16 + 0.88 × 0.84 = 0.758，κ = (0.88 − 0.758) ÷ (1 − 0.758
 | `POST /api/review` | 请求 `{view, enabled, images}`；按 `l2_checks_for` 确定要问的检测项，调用大模型，返回 `Review.to_dict()`；没配置大模型时返回 503 |
 | `POST /api/arbitrate` | 请求 `{job, frames: [{view, l1, l2}]}`；返回 `by_view`（每视角每项的结论，含 `shadow_first_attempt`）、`by_check`（每项取最严重）、`overall` |
 
-大模型配置：只设了 `VLM_API_KEY` 时默认用百炼（DashScope）的 `qwen-vl-max`；设了 `VLM_BASE_URL` 和 `VLM_MODEL` 时用指定的服务。请求体上限 40 MB。
+大模型配置：只设了 `VLM_API_KEY` 时默认用百炼（DashScope）的 `qwen3.7-plus`；设了 `VLM_BASE_URL` 和 `VLM_MODEL` 时用指定的服务。请求体上限 40 MB。
 
 ### 8.2 `app.js` 主循环
 

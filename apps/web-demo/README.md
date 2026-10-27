@@ -30,7 +30,7 @@ export VLM_MODEL=Qwen/Qwen3-VL-8B-Instruct
 export VLM_SCHEMA=1            # 可选：vLLM 支持用 JSON Schema 约束输出
 
 # 或阿里云百炼（截图会发到外部服务，需在授权书里写明）
-export VLM_API_KEY=sk-...      # 只设这一项时默认 DashScope + qwen-vl-max
+export VLM_API_KEY=sk-...      # 只设这一项时默认 DashScope + qwen3.7-plus
 python server.py
 ```
 

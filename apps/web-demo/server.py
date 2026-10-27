@@ -7,7 +7,7 @@
 环境变量：
   VLM_API_KEY   模型服务的 API Key（本地 vLLM 可不设）
   VLM_BASE_URL  OpenAI 兼容接口地址；只设了 VLM_API_KEY 时默认 https://dashscope.aliyuncs.com/compatible-mode/v1
-  VLM_MODEL     模型名；默认 qwen-vl-max（DashScope）
+  VLM_MODEL     模型名；默认 qwen3.7-plus（DashScope）
   VLM_SCHEMA    设为 1 时用 JSON Schema 约束输出（vLLM 支持；不支持的服务会自动退回）
   LIMBCHECK_PROMPT_VERSION  提示词版本（configs/prompts/<版本>.json），默认见 configs/checks.json
   PORT          默认 8000
@@ -57,7 +57,7 @@ MAX_BODY = 40 * 1024 * 1024
 def make_client() -> VLMClient | None:
     key = os.environ.get("VLM_API_KEY", "")
     base = os.environ.get("VLM_BASE_URL") or ("https://dashscope.aliyuncs.com/compatible-mode/v1" if key else "")
-    model = os.environ.get("VLM_MODEL") or ("qwen-vl-max" if base else "")
+    model = os.environ.get("VLM_MODEL") or ("qwen3.7-plus" if base else "")
     if not base or not model:
         return None
     return VLMClient(base, model, key, use_schema=os.environ.get("VLM_SCHEMA") == "1")
