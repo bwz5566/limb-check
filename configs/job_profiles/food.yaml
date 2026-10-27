@@ -5,6 +5,7 @@ requirements:
   - 双手能完成抓握
   - 上肢活动正常
   - 入职前需卸除美甲
+strictness: standard        # 筛选严格度 strict / standard / lenient（configs/strictness.yaml），可按场次临时切换
 steps: [env, stand, back, arms, neck, arms_close, palms, backs, flex, challenge]
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}

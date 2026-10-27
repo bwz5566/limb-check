@@ -25,10 +25,10 @@ const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
 const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '指尖不在轮廓内', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右长度差异大', uncertain: '不确定' };
-const DECISION_CN = { pass: '满足', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
-const DECISION_CLS = { pass: 's-pass', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
-const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4 };
-const VERDICT_CN = { pass: ['符合标准', 's-pass'], review: ['需人工核验', 's-review'], clean: ['疑似污渍·请清洁', 's-review'], block: ['不符合录用标准·待人工确认', 's-fail'] };
+const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
+const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
+const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
+const VERDICT_CN = { pass: ['符合标准', 's-pass'], review: ['需人工核验', 's-review'], clean: ['疑似污渍·请清洁', 's-review'], block: ['不符合录用标准', 's-fail'] };
 const STATUS = { pass: ['完成', 's-pass'], review: ['需人工复核', 's-review'], timeout: ['未完成', 's-fail'] };
 const worst = ds => ds.filter(Boolean).reduce((a, b) => (a == null || SEVERITY[b] > SEVERITY[a] ? b : a), null);
 
@@ -323,7 +323,7 @@ function captureView(st, view, extraImgs = []) {
 function requestReview(view, images, meta) {
   if (!VLM.vlm || !$('#useVlm').checked) return;
   const t0 = performance.now();
-  S.reviews.push(fetch('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, enabled: enabledChecks(), images, meta, job: S.job.id }) })
+  S.reviews.push(fetch('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ view, enabled: enabledChecks(), images, meta, job: S.job.id, strictness: S.strictness }) })
     .then(async r => { const d = await r.json(); return r.ok ? { ...d, view, roundtrip_ms: Math.round(performance.now() - t0) } : { view, results: {}, errors: [d.error || r.statusText] }; })
     .catch(e => ({ view, results: {}, errors: [String(e)] })));
 }
@@ -718,7 +718,7 @@ async function endRun() {
   for (const fr of S.frames) fr.l2 = reviews.find(r => r.view === fr.view)?.results || null;
   let arb;
   try {
-    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l2: f.l2 })) }) });
+    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l2: f.l2 })) }) });
     arb = await r.json();
     if (!r.ok) throw new Error(arb.error || r.statusText);
   } catch (e) { arb = { error: `仲裁服务不可用：${e.message || e}`, by_view: {}, by_check: {} }; }
@@ -769,7 +769,7 @@ function buildExport() {
   const v = readValidation();
   return {
     schema: SCHEMA, session_id: S.sessionId, subject_id: v.subject_id, at: S.startedAt, validation: v.validation,
-    job: { id: S.job.id, name: S.job.name }, truth: v.truth, meta: v.meta,
+    job: { id: S.job.id, name: S.job.name }, strictness: S.strictness, truth: v.truth, meta: v.meta,
     client: { ua: navigator.userAgent, platform: navigator.platform, language: navigator.language, video: { w: W, h: H } },
     config: { prompt_version: WEB.prompt_version, thresholds_version: TH.version, vlm_model: VLM.vlm && $('#useVlm').checked ? VLM.model : null },
     perf: perfSummary(),
@@ -838,8 +838,8 @@ function renderReport() {
 
   el.innerHTML = `
   <h2>检测报告</h2>
-  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
-  <p>本报告为辅助结果：系统只给出“满足 / 需人工复核 / 疑似问题·待人工确认”，不输出最终“不通过”。综合建议：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
+  <p class="muted">岗位：${esc(job.name)}（${esc(job.description)}）· 筛选严格度：${esc(WEB.strictness.levels[S.strictness]?.name || S.strictness)} · 会话 ${esc(S.sessionId)} · ${new Date().toLocaleString('zh-CN')} · 用时 ${(S.durationMs / 1000).toFixed(0)} 秒 · 提示词 ${esc(WEB.prompt_version)}${VLM.vlm && $('#useVlm').checked ? ` · L2 ${esc(VLM.model)}` : ' · 未启用 L2'}</p>
+  <p>能明确判断的项目直接给出“满足 / 不符合”；置信度不足或模型之间不一致的给出“需人工复核 / 疑似问题·待人工确认”。“不符合”的候选人应保留申诉和线下复核渠道。综合结论：<b class="${DECISION_CLS[overall] || ''}">${DECISION_CN[overall] || '—'}</b></p>
   ${arb.error ? `<p class="s-fail">${esc(arb.error)}</p>` : ''}
   <h3>岗位要求核对</h3>
   <p class="muted small">岗位要求：${(job.requirements || []).map(esc).join('；')}。标“只记录”的项目在没有书面岗位依据前不作判定，只保存结果用于评估。</p>
@@ -950,18 +950,29 @@ async function loadConfig() {
   ROUND_MS = FAST ? 2500 : TH.capture.challenge_round_ms;
 }
 
+function showStrictness() {
+  S.strictness = $('#strictness').value;
+  const d = WEB.strictness.levels[S.strictness];
+  $('#strictnessDesc').textContent = d ? `${d.description}（${d.target}）` : '';
+}
+
 function showJob() {
   const j = JOBS[$('#job').value];
   S.job = j;
   const modes = Object.entries(CHECKS).filter(([c]) => modeOf(c) !== 'off').map(([c, d]) => `${d.name}${modeOf(c) === 'record_only' ? '（只记录）' : ''}`);
+  $('#strictness').value = j.strictness || WEB.strictness.default;
+  showStrictness();
   $('#jobDesc').innerHTML = `${esc(j.description)}<br><span class="small">检测项：${modes.map(esc).join('、')}</span><br><span class="small">步骤：${j.steps.map(id => esc(STEP_LIB[id]?.title || id)).join(' → ')}</span>`;
 }
 
 async function init() {
   await loadConfig();
   for (const j of WEB.jobs) $('#job').add(new Option(j.name, j.id));
+  for (const [k, d] of Object.entries(WEB.strictness.levels)) $('#strictness').add(new Option(d.name, k));
+  $('#strictness').onchange = showStrictness;
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
+  if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';
     $('#vlmStatus').className = 'tag ' + (VLM.vlm ? 'ok' : '');

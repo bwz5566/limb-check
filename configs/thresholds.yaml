@@ -46,6 +46,9 @@ multi_frame: {window: 9, vote: 0.6}   # 建议：9 帧中 ≥60% 一致才采纳
 arbitration:
   strategy: default          # 仲裁策略（limbcheck/arbiter.py；自定义策略见 docs/EXTENDING.md）
   high_conf: 0.8             # 所有来源都认为正常且置信度都 ≥ 此值才自动通过
+  auto_fail_conf: 0.85       # 认为有问题且置信度 ≥ 此值 → 直接判"不符合"，低于此值转人工；null 表示一律转人工
+  auto_fail_single_source: false   # 默认策略只有一路模型时是否也直接判（关键点会"脑补"手指，默认要求两路一致）
+  # high_conf、auto_fail_conf 随筛选严格度变化，见 configs/strictness.yaml
   low_conf: 0.5              # 两路不一致且一方低于此值时优先重做
   max_redo: 1
   per_check:                 # 按检测项覆盖上面的值

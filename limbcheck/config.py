@@ -61,6 +61,11 @@ def normalize_profile(p: dict) -> dict:
             warnings.warn(f"岗位 {p.get('id')} 的 {c} 设为 judge 但没有书面依据（basis），已降级为 record_only")
             checks[c]["mode"] = "record_only"
     p["checks"] = checks
+    from .strictness import default_level, levels
+
+    p.setdefault("strictness", default_level())
+    if p["strictness"] not in levels():
+        raise ValueError(f"岗位 {p.get('id')} 的 strictness 只能是 {levels()}，实际为 {p['strictness']}")
     p.setdefault("steps", [])
     p.setdefault("requirements", [])
     return p
@@ -100,6 +105,7 @@ def web_config(thresholds: dict | None = None, profiles: dict | None = None) -> 
         "jobs": jobs,
         "appearance_checks": list(APPEARANCE_CHECKS),
         "policies": {"marks": load_policy("marks")},
+        "strictness": _load_yaml(config_dir() / "strictness.yaml"),
     }
 
 

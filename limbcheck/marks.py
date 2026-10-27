@@ -23,7 +23,7 @@ from .core import FINGER_CN, FINGERS, SIDE_CN, CheckResult, Finding, config_dir
 PASS, REVIEW, CLEAN, BLOCK = "pass", "review", "clean", "block"
 ACTIONS = (PASS, REVIEW, CLEAN, BLOCK)
 _RANK = {PASS: 0, REVIEW: 1, CLEAN: 2, BLOCK: 3}
-ACTION_CN = {PASS: "符合标准", REVIEW: "需人工核验", CLEAN: "疑似污渍·请清洁后重拍", BLOCK: "不符合录用标准·待人工确认"}
+ACTION_CN = {PASS: "符合标准", REVIEW: "需人工核验", CLEAN: "疑似污渍·请清洁后重拍", BLOCK: "不符合录用标准"}
 REGIONS = ("neck", "upper_arm", "forearm", "finger", "hand_back", "palm", "face", "other")
 REGION_CN = {"neck": "脖子", "upper_arm": "大臂", "forearm": "小臂", "finger": "手指", "hand_back": "手背", "palm": "手掌",
              "face": "面部", "other": "其他部位"}
@@ -47,14 +47,27 @@ def _load_default() -> dict:
         return yaml.safe_load(f)
 
 
-def policy() -> dict:
-    return _OVERRIDE if _OVERRIDE is not None else _load_default()
+def policy(level: str | None = None) -> dict:
+    """录用标准；level 为严格度（strict / standard / lenient，见 configs/strictness.yaml），None 为标准原文。"""
+    base = _OVERRIDE if _OVERRIDE is not None else _load_default()
+    if not level:
+        return base
+    key = (id(base), level)
+    if key not in _LEVEL_CACHE:
+        from .strictness import deep_merge, level_def
+
+        _LEVEL_CACHE[key] = deep_merge(base, level_def(level).get("marks"))
+    return _LEVEL_CACHE[key]
+
+
+_LEVEL_CACHE: dict = {}
 
 
 def set_policy(p: dict | None) -> None:
     """替换当前标准（测试、或服务端从别处加载时用）；传 None 恢复为 configs/policies/marks.yaml。"""
     global _OVERRIDE
     _OVERRIDE = p
+    _LEVEL_CACHE.clear()
 
 
 def worst_action(actions) -> str:
@@ -166,7 +179,7 @@ def make_mark(item: dict, view: str, meta: dict | None = None, pol: dict | None 
     m = Mark(kind=kind, part=item.get("part", ""), region=region, side=side, fingers=list(item.get("fingers") or []),
              view=view, confidence=float(item.get("confidence") or 0.0), uncertain=bool(item.get("uncertain")),
              attrs=attrs, bbox=item.get("bbox"))
-    m.size = measure(m.bbox, meta, pol) or _size_from_attrs(attrs)
+    m.size = item.get("size") or measure(m.bbox, meta, pol) or _size_from_attrs(attrs)
     return m
 
 
@@ -229,7 +242,10 @@ def eval_tattoo(m: Mark, pol: dict | None = None) -> tuple[str, list[tuple[str, 
                         else (reg["large"], f"面积 ≥ {ref_cn.strip()}"))
         elif cls == "near":
             why = f"按关键点估算的面积与大模型目测（与{ref_cn}比）不一致" if info.get("conflict") else f"面积接近{ref_cn}（临界）"
-            hits.append((PASS if faded and reg["large_faded"] == PASS else REVIEW, f"{why}，以核验为准"))
+            near = REVIEW if info.get("conflict") else pol["measure"].get("near_action", REVIEW)
+            if faded and reg["large_faded"] == PASS:
+                near = PASS
+            hits.append((near, f"{why}" + ("，以核验为准" if near == REVIEW else "")))
         elif cls == "small":
             hits.append((PASS, f"面积小于{ref_cn}"))
         else:
@@ -318,48 +334,64 @@ def eval_mark(m: Mark, pol: dict | None = None, params: dict | None = None) -> t
 
 # ---------------- 多处 / 跨视角规则 ----------------
 
-def count_rules(marks: list[Mark], pol: dict | None = None) -> list[tuple[str, str, str, list[str]]]:
+def _conf(m: Mark) -> float:
+    return m.confidence * (0.5 if m.uncertain else 1.0)
+
+
+def _kth(confs: list[float], k: int) -> float:
+    """第 k 高的置信度：规则"多于 k-1 处"成立的把握取决于第 k 处有多确定。"""
+    c = sorted(confs, reverse=True)
+    return round(c[k - 1], 3) if len(c) >= k else 0.0
+
+
+def count_rules(marks: list[Mark], pol: dict | None = None) -> list[tuple[str, str, str, list[str], float]]:
     """数量与组合规则。marks 可以来自一个视角，也可以是整场检测所有视角（按部位去重）。
-    返回 [(所属检测项, 动作, 说明, 部位列表)]。"""
+    返回 [(所属检测项, 动作, 说明, 部位列表, 置信度)]。"""
     pol = pol or policy()
     regions = pol["tattoo"]["regions"]
     out = []
     tattoos = [m for m in marks if m.kind == "tattoo"]
     # 手指：按（哪只手, 哪根手指）去重；没说是哪根手指的每条算一处
-    fingers, unnamed = set(), 0
+    fingers: dict = {}
+    unnamed: list[float] = []
     for m in tattoos:
         if m.region != "finger":
             continue
         if m.fingers:
-            fingers |= {(m.side, f) for f in m.fingers}
+            for f in m.fingers:
+                fingers[(m.side, f)] = max(fingers.get((m.side, f), 0.0), _conf(m))
         else:
-            unnamed += 1
-    n = len(fingers) + unnamed
+            unnamed.append(_conf(m))
+    n = len(fingers) + len(unnamed)
     mx = regions["finger"].get("max_count")
     if mx is not None and n > mx:
-        out.append(("tattoo", BLOCK, f"手指纹身 {n} 处（≥ {mx + 1} 处不录用）", sorted(f"{s or 'unknown'}_hand.{f}" for s, f in fingers)))
+        out.append(("tattoo", BLOCK, f"手指纹身 {n} 处（≥ {mx + 1} 处不录用）",
+                    sorted(f"{s or 'unknown'}_hand.{f}" for s, f in fingers), _kth(list(fingers.values()) + unnamed, mx + 1)))
     # 手背 / 手掌：同一只手多处（不同视角拍到的同一处无法可靠去重，按单个视角里的最多处数计）
     for region in ("hand_back", "palm"):
         mx = regions[region].get("max_count")
         if mx is None:
             continue
         for side in ("right", "left", None):
-            per_view: dict[str, int] = {}
+            per_view: dict[str, list[float]] = {}
             for m in tattoos:
                 if m.region == region and m.side == side:
-                    per_view[m.view] = per_view.get(m.view, 0) + int(m.attrs.get("count") or 1)
-            k = max(per_view.values(), default=0)
-            if k > mx:
+                    per_view.setdefault(m.view, []).extend([_conf(m)] * int(m.attrs.get("count") or 1))
+            if not per_view:
+                continue
+            confs = max(per_view.values(), key=len)
+            if len(confs) > mx:
                 where = (SIDE_CN.get(side or "", "") or "") + REGION_CN[region]
-                out.append(("tattoo", BLOCK, f"{where}多处纹身叠加（{k} 处），视觉观感突出", [f"{side or 'unknown'}_{region}"]))
+                out.append(("tattoo", BLOCK, f"{where}多处纹身叠加（{len(confs)} 处），视觉观感突出",
+                            [f"{side or 'unknown'}_{region}"], _kth(confs, mx + 1)))
     # 疤痕与纹身在同一部位
     scars = {(m.region, m.side) for m in marks if m.kind == "scar"}
     both = sorted({(m.region, m.side) for m in tattoos} & scars, key=str)
-    if both:
-        act = pol["scar"].get("with_tattoo", BLOCK)
-        for region, side in both:
-            out.append(("scar", act, f"{({'right': '右', 'left': '左'}.get(side or '', ''))}{REGION_CN.get(region, region)}疤痕同时搭配纹身",
-                        [f"{side or 'unknown'}_{region}"]))
+    act = pol["scar"].get("with_tattoo", BLOCK)
+    for region, side in both:
+        conf = min(max(_conf(m) for m in marks if m.kind == k and (m.region, m.side) == (region, side)) for k in ("tattoo", "scar"))
+        out.append(("scar", act, f"{({'right': '右', 'left': '左'}.get(side or '', ''))}{REGION_CN.get(region, region)}疤痕同时搭配纹身",
+                    [f"{side or 'unknown'}_{region}"], round(conf, 3)))
     return out
 
 
@@ -387,7 +419,8 @@ def mark_finding(check: str, m: Mark, action: str, hits, info: dict, source: str
     reasons = [t for a, t in hits if a == action] if action != PASS else [t for _, t in hits]
     note = f"{m.where}{kind_cn}" + (f"（{'，'.join(desc)}）" if desc else "") + f" → {ACTION_CN[action]}：{'；'.join(reasons)}"
     value = {"verdict": action, "kind": m.kind, "region": m.region, "side": m.side, "fingers": m.fingers, "view": m.view,
-             "rules": [{"action": a, "text": t} for a, t in hits], "size": m.size, "size_check": info, "attrs": m.attrs,
+             "rules": [{"action": a, "text": t} for a, t in hits], "size": m.size, "uncertain": m.uncertain,
+             "confidence": m.confidence, "size_check": info, "attrs": m.attrs,
              "bbox": m.bbox}
     conf = m.confidence * (0.5 if m.uncertain and action != PASS else 1.0)   # 拿不准的问题项置信度减半，仍送人工
     return Finding(check, _part_of(m)[0], m.kind, action != PASS, round(conf, 3), source, value, note)
@@ -401,7 +434,7 @@ def policy_result(check: str, items: list[dict], view: str, source: str, quality
     positive：True = 有不符合标准或需核验的标记；False = 没有标记或全部符合标准；None = 无法判断（含疑似污渍待重拍）。
     每条 Finding.value 里有 verdict（pass / review / block / clean）和命中的条款，仲裁的 policy 策略读这些。
     """
-    pol = policy()
+    pol = policy((meta or {}).get("strictness"))
     params = (meta or {}).get("params") or {}
     if not items:
         return CheckResult(check, source, None, 0.0, [], quality_ok, [], "模型未返回该项")
@@ -421,9 +454,9 @@ def policy_result(check: str, items: list[dict], view: str, source: str, quality
         marks.append(m)
         findings.append(mark_finding(check, m, action, hits, info, source))
     others = [make_mark(i, view, meta, pol) for i in other_items or [] if i["label"] in ("tattoo", "scar")]
-    for scope, action, text, parts in count_rules(marks + others, pol):
+    for scope, action, text, parts, conf in count_rules(marks + others, pol):
         if scope == check:
-            findings.append(Finding(check, parts[0] if parts else "all_visible", "rule", action != PASS, 0.9, source,
+            findings.append(Finding(check, parts[0] if parts else "all_visible", "rule", action != PASS, conf, source,
                                     {"verdict": action, "rules": [{"action": action, "text": text}], "parts": parts}, text))
     verdicts = [(f, f.value["verdict"]) for f in findings if isinstance(f.value, dict) and f.value.get("verdict")]
     bad = [f for f, v in verdicts if v in (BLOCK, REVIEW)]
@@ -455,7 +488,8 @@ def marks_from_result(r: CheckResult | dict | None) -> list[Mark]:
         if not v or "kind" not in v:
             continue
         out.append(Mark(kind=v["kind"], part=f.part, region=v.get("region") or "other", side=v.get("side"),
-                        fingers=list(v.get("fingers") or []), view=v.get("view") or "", confidence=f.confidence,
+                        fingers=list(v.get("fingers") or []), view=v.get("view") or "",
+                        confidence=v.get("confidence", f.confidence), uncertain=bool(v.get("uncertain")),
                         attrs=v.get("attrs") or {}, bbox=v.get("bbox"), size=v.get("size")))
     return out
 
@@ -472,7 +506,7 @@ class SessionReview:
         return asdict(self)
 
 
-def session_review(frames: dict[str, dict]) -> dict[str, SessionReview]:
+def session_review(frames: dict[str, dict], strictness: str | None = None) -> dict[str, SessionReview]:
     """整场检测汇总。frames: {视角: {检测项: 该视角的 L2 CheckResult（或其 dict）}}。
 
     单视角内的规则各视角已经判过，这里只补充跨视角才能发现的（如左手背面拍到一处手指纹身、右手掌面又拍到一处），
@@ -501,9 +535,32 @@ def session_review(frames: dict[str, dict]) -> dict[str, SessionReview]:
             ms = marks_from_result(rd)
             all_marks += ms
             per_view.setdefault(view, []).extend(ms)
-    already = {(scope, text) for ms in per_view.values() for scope, _, text, _ in count_rules(ms)}
+    pol = policy(strictness)
+    already = {(scope, text) for ms in per_view.values() for scope, _, text, _, _ in count_rules(ms, pol)}
     rules: dict[str, list] = {c: [] for c in POLICY_CHECKS}
-    for scope, action, text, parts in count_rules(all_marks):
+    for scope, action, text, parts, conf in count_rules(all_marks, pol):
         if (scope, text) not in already:
-            rules[scope].append({"action": action, "text": text, "parts": parts})
+            rules[scope].append({"action": action, "text": text, "parts": parts, "confidence": conf})
     return {c: SessionReview(c, worst_action(r["action"] for r in rules[c]), rules[c], listed[c], reminders[c]) for c in POLICY_CHECKS}
+
+
+def rejudge(check: str, result: CheckResult | dict | None, view: str, strictness: str | None = None,
+            params: dict | None = None) -> CheckResult | None:
+    """用另一档严格度（或改过的标准）重新判定已有的 L2 结果，不用再调大模型。
+    离线校准（limbcheck calibrate）用：同一批预测在严格 / 标准 / 宽松下各会得到什么结论。"""
+    if result is None:
+        return None
+    r = CheckResult.from_dict(result) if isinstance(result, dict) else result
+    if not any(isinstance(f.value, dict) and "kind" in f.value for f in r.findings):
+        return r                                    # 没有逐处标记（无纹身 / 无法判断 / 旧格式）：结论与严格度无关
+    items = []
+    for f in r.findings:
+        v = f.value if isinstance(f.value, dict) else None
+        if v and "kind" in v:
+            m = marks_from_result(CheckResult(check, r.source, None, findings=[f]))[0]
+            items.append({"check": check, "part": f.part, "label": m.kind, "fingers": m.fingers, "confidence": m.confidence,
+                          "uncertain": m.uncertain, "attrs": m.attrs, "bbox": m.bbox, "size": m.size})
+        elif f.label == "none":
+            items.append({"check": check, "part": f.part, "label": "none", "fingers": [], "confidence": f.confidence,
+                          "uncertain": f.positive is None, "attrs": {}, "bbox": None})
+    return policy_result(check, items, view, r.source, r.quality_ok, {"strictness": strictness, "params": params or {}})

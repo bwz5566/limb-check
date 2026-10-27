@@ -90,7 +90,7 @@ def _subject_patch(img: np.ndarray, ctx: L1Context) -> np.ndarray:
 class Pipeline:
     def __init__(self, thresholds: dict, keypoints=None, contour=None, segmenter=None, vlm=None,
                  profile: dict | None = None, mirrored: bool = False, l1: list[str] | None = None,
-                 eval_attempt: int | None = None, name: str | None = None):
+                 eval_attempt: int | None = None, name: str | None = None, strictness: str | None = None):
         self.th = thresholds
         self.kp = keypoints
         self.contour = contour
@@ -99,6 +99,11 @@ class Pipeline:
         self.profile = profile
         self.mirrored = mirrored
         self.l1_names = list(l1 if l1 is not None else DEFAULT_L1)
+        # 筛选严格度：显式指定 > 岗位画像 > configs/strictness.yaml 的 default
+        from .strictness import arbitration_cfg, default_level
+
+        self.strictness = strictness or (profile or {}).get("strictness") or default_level()
+        self.arb_cfg = arbitration_cfg(thresholds.get("arbitration", {}), self.strictness)
         self.l1_funcs = [(n, registry.get("l1", n), registry.meta("l1", n).get("check")) for n in self.l1_names]
         arb = thresholds.get("arbitration", {})
         # 离线评测默认按"最后一次尝试"仲裁（不能真的让受检者重做），另外统计首次尝试会触发重做的比例
@@ -118,7 +123,7 @@ class Pipeline:
             kp_spec = {"type": kp_spec, "mirrored": True} if isinstance(kp_spec, str) else {**kp_spec, "mirrored": True}
         return cls(thresholds, keypoints=registry.create("keypoints", kp_spec), contour=contour, segmenter=seg,
                    vlm=make_vlm(spec.get("vlm")), profile=profile, mirrored=bool(spec.get("mirrored")),
-                   l1=spec.get("l1"), name=spec.get("name"))
+                   l1=spec.get("l1"), name=spec.get("name"), strictness=spec.get("strictness"))
 
     @property
     def name(self) -> str:
@@ -138,7 +143,8 @@ class Pipeline:
                 "contour": getattr(self.contour, "name", None), "segmenter": getattr(self.seg, "name", None),
                 "l1": self.l1_names,
                 "vlm": {"base_url": self.vlm.base_url, "model": self.vlm.model, "schema": self.vlm.use_schema} if self.vlm else None,
-                "profile": self.profile["id"] if self.profile else None, "mirrored": self.mirrored, "eval_attempt": self.attempt}
+                "profile": self.profile["id"] if self.profile else None, "mirrored": self.mirrored, "eval_attempt": self.attempt,
+                "strictness": self.strictness}
 
     def enabled_checks(self, view: str) -> list[str]:
         return [c for c in VIEW_CHECKS.get(view, ()) if check_mode(self.profile, c) != "off"]
@@ -147,7 +153,7 @@ class Pipeline:
         """给 L2 结果换算纹身 / 疤痕尺寸用的图像比例（手部视角按手掌，其余按上臂、前臂），以及岗位参数。"""
         from .marks import policy
 
-        meta: dict = {"img_w": int(ctx.img.shape[1]), "img_h": int(ctx.img.shape[0]),
+        meta: dict = {"img_w": int(ctx.img.shape[1]), "img_h": int(ctx.img.shape[0]), "strictness": self.strictness,
                       "params": {c: ctx.check_params(c) for c in ("tattoo", "scar")}}
         if ctx.keypoints is None or not set(VIEW_CHECKS.get(ctx.view, ())) & {"tattoo", "scar"}:
             return meta
@@ -203,7 +209,7 @@ class Pipeline:
                 r.quality_ok = False
 
         results = {}
-        arb_cfg = self.th.get("arbitration", {})
+        arb_cfg = self.arb_cfg
         for c in checks:
             a, b = l1.get(c), l2.get(c)
             if a is None and b is None:

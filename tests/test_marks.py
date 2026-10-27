@@ -58,24 +58,24 @@ def test_small_benign_arm_tattoo_passes():
 
 def test_neck_tattoo_blocked_even_if_small():
     r, a = run([tattoo("neck", bbox=[0, 0, 20, 20])], view="neck", checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "脖子" in a.reason and "即使面积小" in a.reason
+    assert a.decision == "fail" and "脖子" in a.reason and "即使面积小" in a.reason
 
 
 @pytest.mark.parametrize("content", ["beast", "deity_demon", "skull_horror", "weapon", "gang", "abusive_text"])
 def test_aggressive_content_blocked_regardless_of_size(content):
     r, a = run([tattoo("right_upper_arm", content=content, bbox=[0, 0, 20, 20])], checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "无论面积大小" in a.reason
+    assert a.decision == "fail" and "无论面积大小" in a.reason
 
 
 def test_sleeping_tiger_is_beast():
     r, a = run([tattoo("right_forearm", content="beast", ink="faded", bbox=[0, 0, 20, 20])], checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested"      # 猛兽类无论睁眼、闭眼、是否洗淡都不录用
+    assert a.decision == "fail"      # 猛兽类无论睁眼、闭眼、是否洗淡都不录用
 
 
 def test_large_arm_tattoo_blocked_unless_faded():
     big = [0, 0, 400, 300]          # 200×150 mm，远大于身份证
     r, a = run([tattoo("left_upper_arm", bbox=big)], checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "面积 ≥ 身份证" in a.reason
+    assert a.decision == "fail" and "面积 ≥ 身份证" in a.reason
     r, a = run([tattoo("left_upper_arm", bbox=big, ink="faded")], checks=("tattoo",))["tattoo"]
     assert a.decision == "pass"     # 面积大但洗过明显变淡、无攻击性 → 放行
 
@@ -113,13 +113,13 @@ def test_finger_rules():
     # 两根手指各一处 → 不录用
     r, a = run([tattoo("right_finger", fingers=["index"], bbox=small), tattoo("left_finger", fingers=["ring"], bbox=small)],
                view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "手指纹身 2 处" in a.reason
+    assert a.decision == "fail" and "手指纹身 2 处" in a.reason
     # 面积 ≥ 1 分硬币 → 不录用
     r, a = run([tattoo("right_finger", fingers=["index"], bbox=[0, 0, 60, 60])], view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "1 分硬币" in a.reason
+    assert a.decision == "fail" and "1 分硬币" in a.reason
     # 颜色过深 → 不录用
     r, a = run([tattoo("right_finger", fingers=["index"], ink="dark", bbox=small)], view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "颜色过深" in a.reason
+    assert a.decision == "fail" and "颜色过深" in a.reason
     # 整体洗过褪色的淡痕，即使不小 → 放行
     r, a = run([tattoo("right_finger", fingers=["index"], ink="faded", bbox=[0, 0, 60, 60])], view="backs", checks=("tattoo",))["tattoo"]
     assert a.decision == "pass"
@@ -130,7 +130,7 @@ def test_hand_back_rules():
     assert a.decision == "review" and "外露高频" in a.reason            # 单处小面积 → 人工核验（可在配置里改为放行）
     r, a = run([tattoo("right_hand_back", bbox=[0, 0, 40, 40]), tattoo("right_hand_back", bbox=[500, 500, 540, 540])],
                view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "fail_suggested" and "多处纹身叠加" in a.reason
+    assert a.decision == "fail" and "多处纹身叠加" in a.reason
 
 
 def test_stain_asks_for_cleaning_then_review():
@@ -155,22 +155,22 @@ def test_scar_rules():
 
     assert one(bbox=[0, 0, 40, 10]).decision == "pass"                            # 单条 20 mm、无增生
     assert "自伤" in one(bbox=[0, 0, 100, 60], pattern="parallel_multiple", count=5).reason
-    assert one(bbox=[0, 0, 100, 60], pattern="parallel_multiple", count=5).decision == "fail_suggested"
-    assert one(bbox=[0, 0, 40, 10], hypertrophic="severe").decision == "fail_suggested"
-    assert one(bbox=[0, 0, 200, 10]).decision == "fail_suggested"                 # 100 mm 大面积长条
+    assert one(bbox=[0, 0, 100, 60], pattern="parallel_multiple", count=5).decision == "fail"
+    assert one(bbox=[0, 0, 40, 10], hypertrophic="severe").decision == "fail"
+    assert one(bbox=[0, 0, 200, 10]).decision == "fail"                 # 100 mm 大面积长条
     assert one(bbox=[0, 0, 80, 10]).decision == "review"                          # 40 mm 介于短小与长条之间
-    assert one(bbox=[0, 0, 120, 10], surgical=True).decision == "fail_suggested"  # 60 mm 手术刀疤，默认按精细作业
-    assert one(bbox=[0, 0, 40, 10], with_tattoo=True).decision == "fail_suggested"
+    assert one(bbox=[0, 0, 120, 10], surgical=True).decision == "fail"  # 60 mm 手术刀疤，默认按精细作业
+    assert one(bbox=[0, 0, 40, 10], with_tattoo=True).decision == "fail"
     a = run([scar("left_forearm", bbox=[0, 0, 120, 10], surgical=True)], checks=("scar",),
             meta={**META, "params": {"scar": {"fine_work": False}}})["scar"][1]
     assert a.decision == "review"                                                 # 非精细作业岗位 → 人工核验
     a = run([scar("right_hand_back", bbox=[0, 0, 40, 10], count=3, pattern="multiple_scattered")], view="backs", checks=("scar",))["scar"][1]
-    assert a.decision == "fail_suggested" and "手背多处陈旧疤痕" in a.reason
+    assert a.decision == "fail" and "手背多处陈旧疤痕" in a.reason
 
 
 def test_scar_with_tattoo_same_region_in_one_view():
     out = run([tattoo("left_forearm", bbox=[0, 0, 40, 40]), scar("left_forearm", bbox=[100, 100, 140, 110])])
-    assert out["scar"][1].decision == "fail_suggested" and "疤痕同时搭配纹身" in out["scar"][1].reason
+    assert out["scar"][1].decision == "fail" and "疤痕同时搭配纹身" in out["scar"][1].reason
 
 
 def test_session_cross_view_finger_count():

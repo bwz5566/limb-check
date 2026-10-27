@@ -105,5 +105,5 @@ def test_session_required_views_and_cross_view_marks(server):
         {"view": "palms", "l1": {"fingers": fingers_ok}, "l2": {"tattoo": finger_tattoo("left", "ring")}},
     ])
     t = out["by_check"]["tattoo"]
-    assert t["decision"] == "fail_suggested" and "手指纹身 2 处" in t["notes"][0]
+    assert t["decision"] == "fail" and "手指纹身 2 处" in t["notes"][0]          # 两处都很确定 → 直接判定
     assert len(t["policy"]["marks"]) == 2

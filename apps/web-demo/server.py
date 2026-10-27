@@ -31,14 +31,23 @@ os.environ.setdefault("LIMBCHECK_CONFIG_DIR", str(REPO / "configs"))
 from limbcheck.arbiter import arbitrate, worst  # noqa: E402
 from limbcheck.core import CHECK_DEFS, VIEW_CN, VIEW_CHECKS, CheckResult  # noqa: E402
 from limbcheck.marks import session_review, set_policy  # noqa: E402
+from limbcheck.strictness import arbitration_cfg, default_level, levels, set_config  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
 from limbcheck.vlm import VLMClient  # noqa: E402
 
 MODELS = Path(os.environ.get("LIMBCHECK_MODELS_DIR") or REPO / "models")
 WEB_CONFIG = json.loads((ROOT / "config.generated.json").read_text(encoding="utf-8"))
 JOBS = {j["id"]: j for j in WEB_CONFIG["jobs"]}
-set_policy(WEB_CONFIG["policies"]["marks"])      # 录用标准与网页配置同源（configs/policies/marks.yaml 生成）
-DECISION_OF_ACTION = {"block": "fail_suggested", "review": "review", "clean": "redo", "pass": "pass"}
+set_policy(WEB_CONFIG["policies"]["marks"])      # 录用标准、严格度与网页配置同源（由 configs/ 生成）
+set_config(WEB_CONFIG["strictness"])
+DECISION_OF_ACTION = {"review": "review", "clean": "redo", "pass": "pass"}
+
+
+def strictness_of(job: dict | None, requested: str | None) -> str:
+    """本场严格度：请求里指定 > 岗位画像 > 默认。"""
+    if requested in levels():
+        return requested
+    return (job or {}).get("strictness") or default_level()
 PORT = int(os.environ.get("PORT", "8000"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 MAX_BODY = 40 * 1024 * 1024
@@ -65,11 +74,12 @@ def mode_of(job: dict | None, check: str) -> str:
     return c.get("mode", "judge")
 
 
-def arbitrate_session(job_id: str, frames: list[dict]) -> dict:
+def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None) -> dict:
     """frames: [{view, l1: {check: CheckResult dict}, l2: {check: CheckResult dict}}]。
     与离线评测一致：按最后一次尝试仲裁（attempt = max_redo），另给出首次尝试的结论供统计重做率。"""
     job = JOBS.get(job_id)
-    cfg = WEB_CONFIG["thresholds"].get("arbitration", {})
+    level = strictness_of(job, strictness)
+    cfg = arbitration_cfg(WEB_CONFIG["thresholds"].get("arbitration", {}), level)
     final_attempt = cfg.get("max_redo", 1)
     by_view: dict = {}
     for fr in frames:
@@ -110,14 +120,18 @@ def arbitrate_session(job_id: str, frames: list[dict]) -> dict:
             by_check.setdefault(c, {"mode": mode_of(job, c), "views": {}, "decision": None, "shadow": None, "notes": []})
             add(c, "review", f"未采集到{'、'.join(VIEW_CN[v] for v in miss)}，无法确认手掌、手背均正常")
     # 纹身 / 疤痕的跨视角规则（手指纹身 ≥ 2 处、手背多处、疤痕搭配纹身）和清洁提醒
-    sessions = session_review({fr["view"]: fr.get("l2") or {} for fr in frames})
+    sessions = session_review({fr["view"]: fr.get("l2") or {} for fr in frames}, level)
+    auto_fail = cfg.get("auto_fail_conf")
     for c, sr in sessions.items():
         if c in by_check:
             by_check[c]["policy"] = sr.to_dict()
             for r in sr.rules:
-                add(c, DECISION_OF_ACTION[r["action"]], r["text"])
+                d = DECISION_OF_ACTION.get(r["action"]) or (
+                    "fail" if auto_fail is not None and r.get("confidence", 0) >= auto_fail else "fail_suggested")
+                add(c, d, r["text"])
     overall = worst([e["decision"] for e in by_check.values() if e["mode"] == "judge"])
-    return {"by_view": by_view, "by_check": by_check, "overall": overall, "job": job_id, "prompt_version": prompt_version()}
+    return {"by_view": by_view, "by_check": by_check, "overall": overall, "job": job_id, "strictness": level,
+            "prompt_version": prompt_version()}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -182,11 +196,12 @@ class Handler(SimpleHTTPRequestHandler):
             job = JOBS.get(req.get("job"))
             meta = {k: v for k, v in (req.get("meta") or {}).items() if k in ("mm_per_px", "img_w", "img_h", "scale_source")}
             meta["params"] = {c: (job["checks"].get(c) or {}).get("params") or {} for c in ("tattoo", "scar")} if job else {}
+            meta["strictness"] = strictness_of(job, req.get("strictness"))
             rv = CLIENT.review(view, checks, req.get("images") or [], meta)
             return self._json(200, rv.to_dict())
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
-            out = arbitrate_session(req.get("job"), req.get("frames") or [])
+            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"))
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             return self._json(200, out)
         return self._json(404, {"error": "not found"})

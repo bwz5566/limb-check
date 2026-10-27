@@ -1,8 +1,10 @@
 """L1 / L2 一致性仲裁（仅标准库）。
 
-规则（与 docs/HANDOFF.md 9.8 一致）：
-- 任何"有问题"的结论都只给 fail_suggested，进入人工确认；系统从不输出最终"不通过"。
-- 只有在所有可用来源都认为正常、且置信度都 ≥ high_conf、且画质合格时才自动通过。
+规则：
+- 能明确判断的直接判：所有可用来源都认为正常、置信度都 ≥ high_conf、画质合格 → 自动"满足"；
+  认为有问题、置信度 ≥ auto_fail_conf（默认策略还要求两路一致）→ 直接"不符合"（fail）。
+- 置信度不够、两路不一致 → fail_suggested / review，转人工；auto_fail_conf 设为 null 时退回"有问题一律转人工"。
+- 阈值随筛选严格度（configs/strictness.yaml）变化，见 limbcheck.strictness.arbitration_cfg。
 - record_only 的检测项照常计算（shadow），但对外结论为 not_assessed。
 - l1 / l2 为 None 表示流水线里没有这一路（例如纹身没有 L1 模型）；
   positive 为 None 表示这一路跑了但无法判断。
@@ -19,11 +21,16 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from .core import FAIL_SUGGESTED, NOT_ASSESSED, PASS, REDO, REVIEW, CheckResult
+from .core import FAIL, FAIL_SUGGESTED, NOT_ASSESSED, PASS, REDO, REVIEW, CheckResult
 from .registry import get, register
 
-DEFAULT_CFG = {"high_conf": 0.8, "low_conf": 0.5, "max_redo": 1}
-SEVERITY = {NOT_ASSESSED: 0, PASS: 1, REDO: 2, REVIEW: 3, FAIL_SUGGESTED: 4}
+DEFAULT_CFG = {"high_conf": 0.8, "low_conf": 0.5, "max_redo": 1, "auto_fail_conf": None, "auto_fail_single_source": False}
+SEVERITY = {NOT_ASSESSED: 0, PASS: 1, REDO: 2, REVIEW: 3, FAIL_SUGGESTED: 4, FAIL: 5}
+
+
+def _auto_fail(conf: float, cfg: dict) -> bool:
+    thr = cfg.get("auto_fail_conf")
+    return thr is not None and conf >= thr
 
 
 @dataclass
@@ -74,6 +81,9 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
                 return REDO, "两路不一致且有一方置信度低"
             return REVIEW, f"两路不一致：{' / '.join(f'{r.source}={_yn(r)}' for r in valid)}"
         who = "两路一致" if len(valid) == 2 else f"{valid[0].source}（单路）"
+        conf = min(r.confidence for r in valid)
+        if (len(valid) == 2 or cfg.get("auto_fail_single_source")) and not bad_quality and _auto_fail(conf, cfg):
+            return FAIL, f"{who}认为有问题，置信度 {conf:.2f}，直接判定"
         return FAIL_SUGGESTED, f"{who}认为有问题，待人工确认"
     # 全部认为正常
     conf = min(r.confidence for r in valid)
@@ -97,7 +107,7 @@ def _verdicts(r: CheckResult | None) -> list[tuple[str, str]]:
         v = f.value if isinstance(f.value, dict) else None
         if v and v.get("verdict"):
             texts = [x["text"] for x in v.get("rules") or [] if x.get("action") == v["verdict"]]
-            out.append((v["verdict"], f.note if v.get("kind") else "；".join(texts)))
+            out.append((v["verdict"], f.note if v.get("kind") else "；".join(texts), f.confidence))
     return out
 
 
@@ -108,16 +118,19 @@ def policy_judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | Non
     vs = _verdicts(l1) + _verdicts(l2)
     if not vs:
         return judge(l1, l2, cfg, attempt)
-    pick = lambda a: [t for v, t in vs if v == a]
+    pick = lambda a: [t for v, t, _ in vs if v == a]
     if pick("block"):
-        return FAIL_SUGGESTED, "按录用标准疑似不符合，待人工确认：" + "；".join(pick("block"))
+        conf = max(c for v, _, c in vs if v == "block")
+        if _auto_fail(conf, cfg):
+            return FAIL, f"按录用标准不符合（置信度 {conf:.2f}）：" + "；".join(pick("block"))
+        return FAIL_SUGGESTED, f"按录用标准疑似不符合，置信度 {conf:.2f} 不足以直接判定，待人工确认：" + "；".join(pick("block"))
     if pick("clean"):
         msg = "；".join(pick("clean"))
         return (REDO, msg) if attempt < cfg["max_redo"] else (REVIEW, f"{msg}；已重拍仍存在时交人工核验")
     if pick("review"):
         return REVIEW, "需人工核验：" + "；".join(pick("review"))
     decision, reason = judge(l1, l2, cfg, attempt)
-    marks = [t for v, t in vs if v == "pass" and t]
+    marks = [t for v, t, _ in vs if v == "pass" and t]
     return decision, (f"发现 {len(marks)} 处，均符合录用标准；" if marks else "") + reason
 
 
@@ -140,6 +153,6 @@ def arbitrate(check: str, l1: CheckResult | None, l2: CheckResult | None, cfg: d
 
 
 def worst(decisions: list[str]) -> str | None:
-    """会话级汇总：取最严重的结论（fail_suggested > review > redo > pass > not_assessed）。"""
+    """会话级汇总：取最严重的结论（fail > fail_suggested > review > redo > pass > not_assessed）。"""
     ds = [d for d in decisions if d]
     return max(ds, key=SEVERITY.__getitem__) if ds else None

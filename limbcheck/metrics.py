@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 
 from .arbiter import worst
 from .dataset import Sample, expected_sides, truth_finger_parts, truth_positive
-from .core import CHECKS, FAIL_SUGGESTED, FINGERS, IMAGE_CHECKS, PASS, REDO, REVIEW, VIEW_CHECKS
+from .core import CHECKS, FAIL, FAIL_SUGGESTED, FINGERS, IMAGE_CHECKS, PASS, REDO, REVIEW, VIEW_CHECKS
 
-FLAGGED = (FAIL_SUGGESTED, REVIEW, REDO)
+FLAGGED = (FAIL, FAIL_SUGGESTED, REVIEW, REDO)
 GROUP_EXCLUDE = {"note", "side", "job", "source_image", "subject_id"}
 
 
@@ -138,6 +138,8 @@ def system_stats(units: list[Unit]) -> dict:
         "false_alarm_rate": rate(sum(flagged(u) for u in neg), len(neg)),
         "accuracy": rate(sum(flagged(u) for u in pos) + sum(u.decision == PASS for u in neg), len(us)),
         "auto_pass_rate": rate(counts[PASS], len(us)),
+        "auto_fail_rate": rate(counts[FAIL], len(us)),
+        "wrong_auto_fail_rate": rate(sum(u.decision == FAIL for u in neg), len(neg)),   # 合格却被自动判不符合（最需控制）
         "manual_rate": rate(counts[FAIL_SUGGESTED] + counts[REVIEW], len(us)),
         "redo_rate_first_attempt": rate(sum(u.first == REDO for u in us), len(us)),
         "decisions": dict(counts),
