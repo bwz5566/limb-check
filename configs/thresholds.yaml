@@ -18,6 +18,9 @@ quality:
 pose:
   min_visibility: 0.55       # 关键点可见度阈值
   limb_symmetry: [0.75, 1.33]  # 左右肢段长度比正常范围
+  foot_min_visibility: 0.4   # 脚跟、脚尖点可见度阈值（鞋子、地面遮挡时略低，建议初值）
+  min_straight_angle: 120    # 站立 / 侧平举 / 上举时肘、膝角度下限（度），低于此值判"弯折"（疑似远端缺失、关键点折回）
+  contour_min: 0.5           # 肢体每段采样点落在人体分割掩码内的比例下限，低于此值判"疑似缺失（关键点脑补）"
 
 fingers:
   # 各手指链长 / 中指链长 的参考比例（MCP→指尖，拇指 CMC→指尖）
@@ -40,6 +43,18 @@ nails:
 hair:
   dyed_chroma_min: 18        # 头发像素平均彩度高于此值记"疑似染色"（粗略启发式，只作基线）
   min_pixels: 400            # 头发像素少于此值视为无法判断
+
+# 肢体协调性：分析动作步骤里记录的关键点序列（limbcheck/motion.py）。角度单位度，长度以大腿 / 腿长 / 躯干长 / 肩宽为单位。
+# 均为建议初值，需要用真人样本（含动作不协调、活动受限者）校准。
+motion:
+  min_frames: 8              # 一个动作至少多少帧才分析
+  min_vis: 0.5               # 关键点可见度低于此值的帧不参与计算
+  arms: {t_min_abduction: 70, up_min_abduction: 140, max_asym_deg: 25, min_elbow: 140}   # 侧平举 / 上举外展角下限，左右差上限，肘部伸直下限
+  legs: {min_lift: 0.5, max_asym: 0.35, max_sway: 0.15}       # 抬腿比例（大腿抬平 = 1）、左右差、抬腿时髋部左右晃动（躯干长）
+  squat: {min_depth: 0.25, max_knee_asym_deg: 25, max_shift: 0.15}   # 下蹲深度（腿长）、最低点左右膝角差、身体侧移（躯干长）
+  march: {lift: 0.35, min_count: 6, min_alternation: 0.7, max_cv: 0.45, max_count_diff: 2}   # 高抬腿：抬腿判定、次数、左右交替比例、间隔变异系数、左右次数差
+  cross_touch: {touch_ratio: 0.45, min_count: 4, min_alternation: 0.7, max_cv: 0.5}         # 交叉摸肩：手腕到对侧肩距离 < 0.45 肩宽算摸到
+  confidence: {normal: 0.85, normal_single: 0.7, abnormal: 0.6}   # 结论置信度：≥ 2 个身体动作都正常 / 只有 1 个 / 发现问题
 
 multi_frame: {window: 9, vote: 0.6}   # 建议：9 帧中 ≥60% 一致才采纳（实时链路用，离线评测为单帧）
 

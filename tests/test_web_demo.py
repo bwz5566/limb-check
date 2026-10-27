@@ -107,3 +107,15 @@ def test_session_required_views_and_cross_view_marks(server):
     t = out["by_check"]["tattoo"]
     assert t["decision"] == "fail" and "手指纹身 2 处" in t["notes"][0]          # 两处都很确定 → 直接判定
     assert len(t["policy"]["marks"]) == 2
+
+
+def test_session_coordination_from_motion(server):
+    from test_motion import arms_step, march_step
+
+    out = server.arbitrate_session("warehouse", [], motion={"aspect": 1.0, "steps": [arms_step(), march_step()]})
+    c = out["by_check"]["coordination"]
+    assert c["decision"] == "pass" and [a["verdict"] for a in c["motion"]] == ["normal", "normal"]
+    out = server.arbitrate_session("warehouse", [], motion={"aspect": 1.0, "steps": [arms_step(right_up=110), march_step(n=3)]})
+    c = out["by_check"]["coordination"]
+    assert c["decision"] == "fail_suggested" and out["overall"] == "fail_suggested"     # 只有关键点一路，不自动判不符合
+    assert "coordination" not in server.arbitrate_session("warehouse", [])["by_check"]

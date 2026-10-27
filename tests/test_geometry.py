@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from conftest import hand_points, make_body, make_hand
-from limbcheck.geometry import analyze_fingers, facing, fingers_result, limbs_result, orient_sign, rgb_to_lab
+from conftest import draw_body, hand_points, make_body, make_hand
+from limbcheck.geometry import (analyze_fingers, facing, fingers_result, limbs_contour_result, limbs_result, orient_sign,
+                                rgb_to_lab)
 from limbcheck.keypoints import mirror_body
 
 
@@ -74,6 +75,37 @@ def test_limbs_low_visibility_inside_frame_is_suspect(thresholds):
     b.vis["right_wrist"] = 0.1
     r = limbs_result(b, thresholds["pose"], "L1:test", lower=True, image_size=(640, 640))
     assert r.positive is True and "right_arm" in r.parts
+
+
+def test_limbs_missing_foot_is_suspect_and_foot_out_of_frame_is_note(thresholds):
+    b = make_body()
+    b.vis["left_foot_index"] = 0.1
+    r = limbs_result(b, thresholds["pose"], "L1:test", lower=True, image_size=(640, 640))
+    assert r.positive is True and r.parts == ["left_foot"]
+    r = limbs_result(make_body(), thresholds["pose"], "L1:test", lower=True, image_size=(640, 590))
+    assert r.positive is False and "左脚" in r.note and "右脚" in r.note
+    r = limbs_result(b, thresholds["pose"], "L1:test", upper=True, lower=False, image_size=(640, 640))
+    assert r.positive is False
+
+
+def test_limbs_folded_joint_in_straight_pose(thresholds):
+    b = make_body()
+    b.joints["right_wrist"] = b.joints["right_elbow"] + (b.joints["right_shoulder"] - b.joints["right_elbow"]) * 0.6
+    r = limbs_result(b, thresholds["pose"], "L1:test", lower=True, image_size=(640, 640), straight=True)
+    assert "right_arm" in r.parts and any(f.label == "folded" for f in r.findings)
+    assert limbs_result(make_body(), thresholds["pose"], "L1:test", lower=True, image_size=(640, 640), straight=True).positive is False
+    assert "right_arm" not in limbs_result(b, thresholds["pose"], "L1:test", lower=True, image_size=(640, 640)).parts
+
+
+def test_limbs_contour_flags_hallucinated_forearm(thresholds):
+    b = make_body()
+    ok = limbs_contour_result(draw_body(b), b, thresholds["pose"], "L1:test")
+    assert ok.positive is False and ok.confidence >= 0.9
+    bad = limbs_contour_result(draw_body(b, skip=("right_arm",)), b, thresholds["pose"], "L1:test")
+    assert bad.positive is True and bad.parts == ["right_arm"]
+    assert bad.findings[[f.part for f in bad.findings].index("right_arm")].label == "limb_off_mask"
+    legs_only = limbs_contour_result(draw_body(b, skip=("right_arm",)), b, thresholds["pose"], "L1:test", upper=False)
+    assert legs_only.positive is False
 
 
 def test_mirror_body_swaps_anatomical_sides():

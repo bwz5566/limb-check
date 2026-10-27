@@ -4,6 +4,7 @@
   "default_prompt_version": "v2",
   "checks": {
     "limbs":    {"name": "四肢", "views": ["stand", "arms", "arms_up"], "basis_required": false, "appearance": false},
+    "coordination": {"name": "肢体协调性", "views": [], "basis_required": false, "appearance": false, "motion_steps": ["arms", "cross_touch", "legs", "march", "squat", "flex", "pinch"]},
     "fingers":  {"name": "手部（手指/手掌/手背）", "views": ["palms", "backs", "hand"], "basis_required": false, "appearance": false, "required_views": ["palms", "backs"]},
     "nails":    {"name": "美甲", "views": ["backs", "hand"], "basis_required": false, "appearance": true},
     "tattoo":   {"name": "纹身", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand"], "basis_required": true, "appearance": true},

@@ -31,7 +31,7 @@ from .l1checks import L1Context
 from .prompts import l2_checks_for
 from .vlm import VLMClient
 
-DEFAULT_L1 = ["fingers.keypoints", "fingers.contour", "nails.delta_e", "limbs.pose", "hair.color"]
+DEFAULT_L1 = ["fingers.keypoints", "fingers.contour", "nails.delta_e", "limbs.pose", "limbs.contour", "hair.color"]
 
 
 def encode_jpeg(img: np.ndarray, max_side: int = 1280, quality_: int = 88) -> str:

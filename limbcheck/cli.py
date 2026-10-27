@@ -144,6 +144,29 @@ def cmd_calibrate(args):
     print(f"\n已写入 {out}")
 
 
+def cmd_motion(args):
+    """重新分析网页 demo 导出报告里的动作序列（改了 motion 阈值后不用重新采集）。"""
+    from .config import load_thresholds
+    from .motion import LABEL_CN, analyze, motion_result
+
+    th = load_thresholds(args.thresholds).get("motion")
+    files = [f for p in args.reports for f in (sorted(Path(p).glob("*.json")) if Path(p).is_dir() else [Path(p)])]
+    out = []
+    for f in files:
+        rep = json.loads(f.read_text(encoding="utf-8"))
+        a = analyze(rep.get("motion"), th)
+        r = motion_result(a, th)
+        out.append({"file": str(f), "session_id": rep.get("session_id"), "analysis": a, "result": r.to_dict() if r else None})
+        verdict = "未采集到动作序列" if r is None else "无法判断" if r.positive is None else "发现问题" if r.positive else "正常"
+        print(f"\n## {f.name}（{rep.get('session_id', '')}）：{verdict}")
+        for x in a:
+            notes = "；".join(f"{LABEL_CN[y['label']]}：{y['note']}" for y in x["findings"]) or ("正常" if x["verdict"] == "normal" else "帧数不足")
+            print(f"- {x['title']}（{x['frames']} 帧）：{notes}  {json.dumps(x['metrics'], ensure_ascii=False)}")
+    if args.out:
+        Path(args.out).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n已写入 {args.out}")
+
+
 def cmd_compare(args):
     from .report import compare
 
@@ -374,6 +397,12 @@ def main(argv=None):
     p.add_argument("--thresholds", help="阈值文件，默认 configs/thresholds.yaml")
     p.add_argument("-o", "--out", help="输出 Markdown，默认 <run>/calibration.md（同名 .json 为完整网格）")
     p.set_defaults(func=cmd_calibrate)
+
+    p = sub.add_parser("motion", help="重新分析网页 demo 报告里的动作序列（肢体协调性），改了 motion 阈值后用")
+    p.add_argument("reports", nargs="+", help="导出的报告 JSON（文件或目录）")
+    p.add_argument("--thresholds", help="阈值文件，默认 configs/thresholds.yaml")
+    p.add_argument("-o", "--out", help="把完整分析写入 JSON")
+    p.set_defaults(func=cmd_motion)
 
     p = sub.add_parser("compare", help="多次运行横向对比")
     p.add_argument("runs", nargs="+")

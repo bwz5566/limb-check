@@ -19,12 +19,18 @@ const FINGER_IDS = { thumb: [1, 2, 3, 4], index: [5, 6, 7, 8], middle: [9, 10, 1
 const SIDE_CN = { right: '右手', left: '左手' };
 const J = { nose: 0, left_shoulder: 11, right_shoulder: 12, left_elbow: 13, right_elbow: 14, left_wrist: 15, right_wrist: 16, left_hip: 23, right_hip: 24, left_knee: 25, right_knee: 26, left_ankle: 27, right_ankle: 28 };
 const BODY_IDS = Object.values(J);
+const J_FEET = { left_heel: 29, right_heel: 30, left_foot_index: 31, right_foot_index: 32 };
+const FEET = { left_foot: ['left_heel', 'left_foot_index'], right_foot: ['right_heel', 'right_foot_index'] };
+const FOOT_CN = { left_foot: '左脚', right_foot: '右脚' };
+// 肢体轮廓复核的采样段（近端、远端），与 limbcheck.geometry.LIMB_SEGS 一致
+const LIMB_SEGS = { left_arm: [['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist']], right_arm: [['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist']], left_leg: [['left_hip', 'left_knee'], ['left_knee', 'left_ankle']], right_leg: [['right_hip', 'right_knee'], ['right_knee', 'right_ankle']] };
+const STRAIGHT_VIEWS = ['stand', 'arms', 'arms_up'];   // 这些视角要求手臂（站立时还有腿）伸直
 const LIMBS = { left_arm: ['left_shoulder', 'left_elbow', 'left_wrist'], right_arm: ['right_shoulder', 'right_elbow', 'right_wrist'], left_leg: ['left_hip', 'left_knee', 'left_ankle'], right_leg: ['right_hip', 'right_knee', 'right_ankle'] };
 const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿' };
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
-const PART_CN = { right_hand: '右手', left_hand: '左手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '指尖不在轮廓内', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右长度差异大', uncertain: '不确定' };
+const PART_CN = { right_hand: '右手', left_hand: '左手', left_foot: '左脚', right_foot: '右脚', left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿', arms: '双臂', legs: '双腿', whole_body: '全身', hands: '双手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '指尖不在轮廓内', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定' };
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
@@ -196,8 +202,8 @@ function fullBodyVisible(b) {
   const mv = TH.pose.min_visibility;
   return Object.keys(J).every(k => b.vis[k] > mv && b.joints[k].x > 0.01 * W && b.joints[k].x < 0.99 * W && b.joints[k].y > 0.01 * H && b.joints[k].y < 0.99 * H);
 }
-// 四肢：关节可见度 + 左右肢段长度比（与 limbcheck.geometry.limbs_result 一致）
-function limbsResult(body, upper, lower, source = SRC_KP) {
+// 四肢：关节可见度 + 双脚 + 伸直姿势下的关节弯折 + 左右肢段长度比（与 limbcheck.geometry.limbs_result 一致）
+function limbsResult(body, upper, lower, source = SRC_KP, straight = false) {
   const minV = TH.pose.min_visibility, [lo, hi] = TH.pose.limb_symmetry;
   if (!body) return Result('limbs', source, null, 0, [], false, [], '未检测到人体');
   if (!['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].every(k => has(body, k, minV))) return Result('limbs', source, null, 0, [], false, [], '躯干关键点不完整（未完整入框或背对镜头）');
@@ -209,6 +215,20 @@ function limbsResult(body, upper, lower, source = SRC_KP) {
     const v = Math.min(...LIMBS[k].map(j => body.vis[j] ?? 0));
     visAll.push(v);
     if (v < minV) { parts.push(k); findings.push(Finding('limbs', k, 'low_visibility', true, r3(0.6 * (1 - v)), source, r3(v), `${LIMB_CN[k]}关键点可见度低（${v.toFixed(2)}），疑似缺失或被遮挡`)); }
+  }
+  // 双脚：脚出画只记录，不影响结论
+  const feetOut = [];
+  if (lower) for (const [k, [heel, toe]] of Object.entries(FEET)) {
+    if (!body.joints[heel] || !body.joints[toe]) continue;
+    if (!inside(heel) || !inside(toe)) { feetOut.push(k); continue; }
+    const v = Math.min(body.vis[heel] ?? 0, body.vis[toe] ?? 0);
+    if (v < (TH.pose.foot_min_visibility ?? minV)) { parts.push(k); findings.push(Finding('limbs', k, 'low_visibility', true, r3(0.5 * (1 - v)), source, r3(v), `${FOOT_CN[k]}关键点可见度低（${v.toFixed(2)}），疑似缺失或被遮挡`)); }
+  }
+  // 伸直姿势下肘 / 膝明显弯折：多是远端缺失、关键点被"折"回到近端肢段上，或关节伸不直
+  if (straight) for (const k of limbs) {
+    if (parts.includes(k) || outOfFrame.includes(k) || !LIMBS[k].every(j => has(body, j, minV))) continue;
+    const a = angle(...LIMBS[k].map(j => body.joints[j]));
+    if (a < (TH.pose.min_straight_angle ?? 120)) { parts.push(k); findings.push(Finding('limbs', k, 'folded', true, 0.55, source, Math.round(a * 10) / 10, `${LIMB_CN[k]}${k.endsWith('arm') ? '肘' : '膝'}关节弯折 ${Math.round(a)}°（该姿势应伸直），疑似远端缺失或关节伸不直`)); }
   }
   for (const [seg, [l, r]] of Object.entries(SEGMENTS)) {
     if ((['upper_arm', 'forearm'].includes(seg) && !upper) || (['thigh', 'shank'].includes(seg) && !lower)) continue;
@@ -223,7 +243,48 @@ function limbsResult(body, upper, lower, source = SRC_KP) {
   if (parts.length) return Result('limbs', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), [...new Set(parts)].sort(), true, findings);
   if (outOfFrame.length) return Result('limbs', source, null, 0, [], false, findings, outOfFrame.map(k => LIMB_CN[k]).join('、') + '未完整入框');
   const conf = visAll.length ? Math.min(1, Math.min(...visAll) / Math.max(minV, 1e-6) * 0.8) : 0;
-  return Result('limbs', source, false, r3(conf), [], true, findings);
+  return Result('limbs', source, false, r3(conf), [], true, findings, feetOut.length ? feetOut.map(k => FOOT_CN[k]).join('、') + '未完整入框（不影响结论）' : '');
+}
+// 肢体轮廓复核：姿态模型自带的人体分割掩码，每段肢体 1/4、1/2、3/4 处采样（与 limbcheck.geometry.limbs_contour_result 一致）
+function limbsContourResult(mask, body, upper, lower, source = 'L1:contour-person') {
+  if (!mask || !body) return null;
+  const { data, w, h } = mask, sx = w / W, sy = h / H;
+  const thr = TH.pose.contour_min ?? 0.5;
+  const t = ['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].every(k => body.joints[k]) ? torso(body) : Math.min(W, H);
+  const rad = Math.max(2, Math.round(0.02 * t * sx));
+  const hit = (x, y) => { for (let yy = Math.max(0, y - rad); yy <= Math.min(h - 1, y + rad); yy++) for (let xx = Math.max(0, x - rad); xx <= Math.min(w - 1, x + rad); xx++) if (data[yy * w + xx] > 0.5) return true; return false; };
+  const findings = [], parts = [], covs = [];
+  for (const [limb, segs] of Object.entries(LIMB_SEGS)) {
+    if ((limb.endsWith('arm') && !upper) || (limb.endsWith('leg') && !lower)) continue;
+    if (!segs.flat().every(j => body.joints[j])) continue;
+    const [near, far] = segs.map(([a, b]) => {
+      let n = 0, k = 0;
+      for (const f of [0.25, 0.5, 0.75]) {
+        const x = Math.round((body.joints[a].x + f * (body.joints[b].x - body.joints[a].x)) * sx), y = Math.round((body.joints[a].y + f * (body.joints[b].y - body.joints[a].y)) * sy);
+        if (x >= 0 && x < w && y >= 0 && y < h) { n++; k += hit(x, y) ? 1 : 0; }
+      }
+      return n ? k / n : 1;
+    });
+    const c = Math.min(near, far); covs.push(c);
+    if (c < thr) { parts.push(limb); findings.push(Finding('limbs', limb, 'limb_off_mask', true, r3(0.5 + 0.5 * (1 - c)), source, { proximal: r2(near), distal: r2(far) }, `${LIMB_CN[limb]}${far < near ? '远端' : '近端'}只有 ${Math.round(c * 100)}% 落在人体轮廓内，疑似缺失（关键点脑补）`)); }
+    else findings.push(Finding('limbs', limb, 'normal', false, r3(0.5 + 0.5 * c), source, { proximal: r2(near), distal: r2(far) }));
+  }
+  if (!findings.length) return null;
+  if (parts.length) return Result('limbs', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), parts, true, findings);
+  return Result('limbs', source, false, r3(0.5 + 0.5 * Math.min(...covs)), [], true, findings);
+}
+// 同一检测项的多路 L1 结果按"任一路报问题即报问题"合并（与 limbcheck.core.merge_any 一致）
+function mergeAny(rs, source) {
+  rs = rs.filter(Boolean); if (!rs.length) return null;
+  if (rs.length === 1) return rs[0];
+  const pos = rs.filter(r => r.positive === true), neg = rs.filter(r => r.positive === false);
+  const [positive, conf] = pos.length ? [true, Math.max(...pos.map(r => r.confidence))] : neg.length === rs.length ? [false, Math.min(...neg.map(r => r.confidence))] : [null, 0];
+  return Result(rs[0].check, source, positive, r3(conf), [...new Set(pos.flatMap(r => r.parts))].sort(), rs.every(r => r.quality_ok), rs.flatMap(r => r.findings), rs.map(r => r.note).filter(Boolean).join('; '));
+}
+// 读出最近一帧的人体分割掩码（只在采集证据帧时读，避免每帧从 GPU 拷贝）
+function poseMask() {
+  const m = S.poseMask; if (!m) return null;
+  try { return { data: m.getAsFloat32Array(), w: m.width, h: m.height }; } catch { return null; }
 }
 
 // ---------- 尺度（毫米 / 像素）：纹身、疤痕估算面积用，公式与 limbcheck.geometry.mm_per_px_* 相同 ----------
@@ -295,8 +356,10 @@ function l1ForView(view) {
     if (checks.includes('fingers')) out.fingers = fingersResult(S.hands, v.expected_hands || 2);
     if (checks.includes('nails')) { const r = nailsResult(S.hands); if (r) out.nails = r; }
   } else if (checks.includes('limbs')) {
-    const p = paramsOf('limbs');
-    out.limbs = limbsResult(S.body, p.upper ?? true, (p.lower ?? true) && view === 'stand');
+    const p = paramsOf('limbs'), up = p.upper ?? true, low = (p.lower ?? true) && view === 'stand';
+    const kp = limbsResult(S.body, up, low, SRC_KP, STRAIGHT_VIEWS.includes(view));
+    const ct = limbsContourResult(poseMask(), S.body, up, low);
+    out.limbs = ct ? mergeAny([kp, ct], 'L1:mediapipe-web+contour-person') : kp;
   }
   const b = subjectBrightness(), [lo, hi] = TH.quality.brightness;
   if (b < lo || b > hi) for (const r of Object.values(out)) { r.quality_ok = false; r.note = [r.note, `受检部位${b < lo ? '过暗' : '过亮'}（${Math.round(b)}）`].filter(Boolean).join('; '); }
@@ -400,6 +463,8 @@ const STEP_LIB = {
       const b = S.body;
       if (!fullBodyVisible(b)) return { hint: '请后退，确保头到脚完整入框' };
       if (b.joints.left_wrist.y < b.joints.left_shoulder.y || b.joints.right_wrist.y < b.joints.right_shoulder.y) return { hint: '请把双臂放下' };
+      // 腿弯着拍会被"关节弯折"规则记疑似：先提示站直，做不到的超时后照常采集、交人工
+      if (['left', 'right'].some(s => angle(b.joints[`${s}_hip`], b.joints[`${s}_knee`], b.joints[`${s}_ankle`]) < (TH.pose.min_straight_angle ?? 120) + 20)) return { hint: '请站直，双腿伸直' };
       return { ok: true };
     },
     onHold(st) {
@@ -425,7 +490,7 @@ const STEP_LIB = {
     onTimeout: captureOnTimeout('back', 'pose'),
   },
   arms: {
-    title: '双臂侧平举 → 上举', needs: ['pose'],
+    title: '双臂侧平举 → 上举', needs: ['pose'], record: true,
     text: st => st.phase ? '双臂向上举过头顶，手臂伸直' : '双臂向两侧平举，呈 T 字',
     check(st) {
       const g = poseGate(); if (g) return { hint: g };
@@ -451,7 +516,7 @@ const STEP_LIB = {
     onTimeout: captureOnTimeout(st => (st.phase ? 'arms_up' : 'arms'), 'pose'),
   },
   legs: {
-    title: '单腿抬起', needs: ['pose'], hold: 500,
+    title: '单腿抬起', needs: ['pose'], hold: 500, record: true,
     text: st => st.phase ? '放下左腿，再抬起右腿，膝盖尽量抬高' : '抬起左腿，膝盖尽量抬高',
     check(st) {
       const g = poseGate(); if (g) return { hint: g };
@@ -468,7 +533,7 @@ const STEP_LIB = {
     },
   },
   squat: {
-    title: '深蹲后起立', needs: ['pose'], hold: 300,
+    title: '深蹲后起立', needs: ['pose'], hold: 300, record: true,
     text: st => st.phase ? '慢慢站起来' : '慢慢下蹲',
     check(st) {
       const g = poseGate(); if (g) return { hint: g };
@@ -481,6 +546,46 @@ const STEP_LIB = {
     onHold(st) {
       if (st.phase === 0) { st.evidence.push({ label: '下蹲', img: snapshot(true, null, 480, 0.8) }); st.phase = 1; say(this.text(st), true); return { done: false }; }
       return { done: true };
+    },
+  },
+  // 原地高抬腿：左右交替，看次数、交替和节律（肢体协调性）；计数规则与 limbcheck/motion.py 相同
+  march: {
+    title: '原地高抬腿', needs: ['pose'], record: true, timeoutFactor: 1.5,
+    text: () => `原地左右交替高抬腿，节奏均匀，共 ${(TH.motion?.march?.min_count ?? 6) + 2} 次`,
+    check(st) {
+      const g = poseGate(); if (g) return { hint: g };
+      const b = S.body, m = TH.motion?.march || {}, enter = m.lift ?? 0.35, need = (m.min_count ?? 6) + 2;
+      if (!fullBodyVisible(b)) return { hint: '请后退，确保头到脚完整入框' };
+      st.up ||= { left: false, right: false }; st.n ||= 0;
+      for (const s of ['left', 'right']) {
+        const thigh = Math.max(S.baseline?.[s === 'left' ? 'thighL' : 'thighR'] || 0, dist(b.joints[`${s}_knee`], b.joints[`${s}_ankle`]));
+        const lift = 1 - (b.joints[`${s}_knee`].y - b.joints[`${s}_hip`].y) / (thigh + 1e-6);
+        if (!st.up[s] && lift > enter) { st.up[s] = true; st.n++; st.last = s; }
+        else if (st.up[s] && lift < enter * 0.5) st.up[s] = false;
+      }
+      st.metrics['次数'] = `${st.n}/${need}`;
+      if (st.n >= need) return { done: true };
+      return { hint: st.n ? `很好，换${st.last === 'left' ? '右' : '左'}腿` : '开始原地高抬腿' };
+    },
+  },
+  // 交叉摸肩：右手摸左肩、左手摸右肩交替（跨中线动作，看左右交替和节律）
+  cross_touch: {
+    title: '交叉摸肩', needs: ['pose'], record: true, timeoutFactor: 1.5,
+    text: () => `右手摸左肩，放下，再左手摸右肩，交替进行，共 ${(TH.motion?.cross_touch?.min_count ?? 4) + 2} 次`,
+    check(st) {
+      const g = poseGate(); if (g) return { hint: g };
+      const b = S.body, m = TH.motion?.cross_touch || {}, ratio = m.touch_ratio ?? 0.45, need = (m.min_count ?? 4) + 2;
+      if (!has(b, 'left_shoulder', 0.5) || !has(b, 'right_shoulder', 0.5)) return { hint: '请让双肩出现在画面中' };
+      const sw = dist(b.joints.left_shoulder, b.joints.right_shoulder);
+      st.on ||= { left: false, right: false }; st.n ||= 0; st.next ||= 'right';
+      for (const [s, o] of [['left', 'right'], ['right', 'left']]) {
+        const d = dist(b.joints[`${s}_wrist`], b.joints[`${o}_shoulder`]) / (sw + 1e-6);
+        if (!st.on[s] && d < ratio) { st.on[s] = true; if (s === st.next) { st.n++; st.next = o; } }
+        else if (st.on[s] && d > ratio * 1.5) st.on[s] = false;
+      }
+      st.metrics['次数'] = `${st.n}/${need}`;
+      if (st.n >= need) return { done: true };
+      return { hint: st.next === 'right' ? '右手摸左肩' : '左手摸右肩' };
     },
   },
   // 颈部：抬下巴向左、向右转头，两张图一起交给大模型（脖子有纹身即不录用，不需要量尺寸）
@@ -606,12 +711,31 @@ function makeSteps(job) {
   return ids.map(id => ({ ...STEP_LIB[id], id, state: null }));
 }
 
+// ---------- 动作序列：身体动作步骤按约 15 帧 / 秒记录关键点，结束后交服务端分析肢体协调性（limbcheck/motion.py） ----------
+const MOTION_FPS = 15, MOTION_MAX = 1500;
+function recordMotion(step, now) {
+  const st = step.state;
+  if (!step.record || !S.body || !st) return;
+  if (st.lastRec != null && now - st.lastRec < 1000 / MOTION_FPS) return;
+  st.lastRec = now;
+  st.seq ||= [];
+  if (st.seq.length >= MOTION_MAX) return;
+  const k = {};
+  for (const n of Object.keys(J)) { const p = S.body.joints[n]; k[n] = [r3(p.x / W), r3(p.y / H), r2(S.body.vis[n])]; }
+  st.seq.push({ t: Math.round(now - st.start), ph: st.phase, k });
+}
+const motionSteps = () => CHECKS.coordination?.motion_steps || [];
+function motionPayload() {
+  const steps = S.results.filter(r => motionSteps().includes(r.id)).map(r => ({ id: r.id, status: r.status, note: r.note, ms: r.ms, metrics: r.metrics, seq: r.seq || [] }));
+  return steps.length ? { aspect: r3(W / H), fps: MOTION_FPS, steps } : null;
+}
+
 // ---------- 主循环 ----------
 function setHold(p) { $('#holdBar').style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`; }
 
 function readPose(r) {
   // 只统计主要关节平均可见度较高、且与已计入的人不重叠的人，避免背景误检或重复检测被当成第二个人
-  const people = r.landmarks.map(lm => ({ lm, vis: BODY_IDS.reduce((s, i) => s + (lm[i].visibility ?? 1), 0) / BODY_IDS.length })).sort((a, b) => b.vis - a.vis);
+  const people = r.landmarks.map((lm, idx) => ({ lm, idx, vis: BODY_IDS.reduce((s, i) => s + (lm[i].visibility ?? 1), 0) / BODY_IDS.length })).sort((a, b) => b.vis - a.vis);
   const counted = [];
   for (const p of people) {
     if (p.vis <= 0.5) continue;
@@ -620,8 +744,9 @@ function readPose(r) {
   }
   S.poseCount = counted.length;
   const best = people[0]?.lm || null;
-  S.pose = best;
-  S.body = best ? { joints: Object.fromEntries(Object.entries(J).map(([k, i]) => [k, toPx(best[i])])), vis: Object.fromEntries(Object.entries(J).map(([k, i]) => [k, best[i].visibility ?? 1])) } : null;
+  S.pose = best; S.poseIdx = people[0]?.idx ?? 0;
+  const JA = Object.entries({ ...J, ...J_FEET });
+  S.body = best ? { joints: Object.fromEntries(JA.map(([k, i]) => [k, toPx(best[i])])), vis: Object.fromEntries(JA.map(([k, i]) => [k, best[i].visibility ?? 1])) } : null;
 }
 
 function readHands(r) {
@@ -646,6 +771,12 @@ function loop() {
     if (step.needs.includes('pose')) {
       const t = performance.now(), r = poseLm.detectForVideo(grab, now); S.perf.pose.push(performance.now() - t);
       readPose(r);
+      // 只保留主受检者的人体掩码，其余立即释放
+      try { S.poseMask?.close?.(); } catch { /* 已释放 */ }
+      const masks = r.segmentationMasks || [];
+      S.poseMask = S.pose ? masks[S.poseIdx] || null : null;
+      masks.forEach(m => { if (m !== S.poseMask) try { m.close?.(); } catch { /* 已释放 */ } });
+      recordMotion(step, now);
       if (S.pose) { draw.drawConnectors(S.pose, PoseLandmarker.POSE_CONNECTIONS, { color: '#22d3ee', lineWidth: 3 }); draw.drawLandmarks(S.pose, { color: '#f97316', radius: 3 }); }
     } else { S.pose = S.body = null; S.poseCount = 0; }
     if (step.needs.includes('hands')) {
@@ -688,7 +819,7 @@ function runStep(step, now) {
 
 function finish(step, status, note) {
   const st = step.state;
-  S.results.push({ id: step.id, title: step.title, status, note: note || '', ms: Math.round(performance.now() - st.start), metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails });
+  S.results.push({ id: step.id, title: step.title, status, note: note || '', ms: Math.round(performance.now() - st.start), metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails, seq: st.seq });
   document.querySelectorAll('#stepList li')[S.stepIdx].className = status;
   nextStep();
 }
@@ -718,7 +849,7 @@ async function endRun() {
   for (const fr of S.frames) fr.l2 = reviews.find(r => r.view === fr.view)?.results || null;
   let arb;
   try {
-    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l2: f.l2 })) }) });
+    const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload() }) });
     arb = await r.json();
     if (!r.ok) throw new Error(arb.error || r.statusText);
   } catch (e) { arb = { error: `仲裁服务不可用：${e.message || e}`, by_view: {}, by_check: {} }; }
@@ -775,6 +906,7 @@ function buildExport() {
     perf: perfSummary(),
     steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note, ms: r.ms, metrics: r.metrics, views: r.views })),
     frames: S.frames.map(({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands }) => ({ view, step, img, extra_imgs, scale, l1, brightness, at_ms, hands })),
+    motion: motionPayload(),
     retakes: S.retakes || 0,
     reviews: S.reviewsDone,
     arbitration_by_view: S.arb.by_view, arbitration: { by_check: S.arb.by_check, overall: S.arb.overall, error: S.arb.error },
@@ -794,7 +926,13 @@ function requirementRows() {
     const notes = a?.notes || [];
     rows.push({ name: d.name, kind: CHECKS[c].appearance && S.job.basis?.some(b => (b.checks || []).includes(c)) ? '录用标准' : '图像判定', mode, decision: a ? a.decision : 'not_assessed', shadow: a?.shadow, reason: a ? [...notes, ...reasons.slice(0, 2)].join('；') : '没有可用的模型结果（该项需要 L2 大模型或尚无 L1 模型）' });
   }
-  const motion = [['上肢活动（侧平举、上举）', ['arms'], 'limbs'], ['下肢活动、下蹲', ['legs', 'squat'], 'limbs'], ['握拳与张开', ['flex'], 'fingers'], ['拇指与各指对捏', ['pinch'], 'fingers']];
+  // 肢体协调性：服务端分析动作序列的结论；没有分析结果时退回按步骤是否完成
+  const co = arb.by_check?.coordination;
+  if (co && modeOf('coordination') !== 'off') {
+    const bad = (co.motion || []).flatMap(a => a.findings.map(f => `${a.title}：${f.note}`));
+    rows.push({ name: CHECKS.coordination.name, kind: '动作分析', mode: co.mode, decision: co.decision, shadow: co.shadow, reason: bad.join('；') || shortReason(co.reason) || co.l1?.note || '' });
+  }
+  const motion = [['上肢活动（侧平举、上举）', ['arms'], 'limbs'], ['下肢活动、下蹲', ['legs', 'squat'], 'limbs'], ['握拳与张开', ['flex'], 'fingers'], ['拇指与各指对捏', ['pinch'], 'fingers']].filter(([, ids]) => !co || !ids.some(id => motionSteps().includes(id)));
   for (const [name, ids, c] of motion) {
     const dcs = stepDecision(ids); if (!dcs) continue;
     const notes = ids.map(id => S.results.find(r => r.id === id)).filter(r => r && r.status !== 'pass').map(r => `${r.title}：${r.note || STATUS[r.status][0]}`);
@@ -834,6 +972,7 @@ function renderReport() {
   const nailRows = S.results.flatMap(r => r.nails || []).map(h => `<p><b>${SIDE_CN[h.side] || '?'}</b></p><div class="thumbs nails">${h.nails.map(n => `<figure><img src="${n.img}"><figcaption class="muted small">${FINGER_CN[n.finger]} ΔE ${n.deltaE}${n.flag ? ' <b class="s-review">疑似美甲</b>' : ''}</figcaption></figure>`).join('')}</div>`).join('');
   const revBlock = !S.reviewsDone.length ? `<p class="muted">${VLM.vlm ? '本次未启用大模型复核' : '未配置大模型（见 apps/web-demo/README.md）'}</p>` : S.reviewsDone.map(rv => `<details><summary>${esc(VIEWS[rv.view]?.name || rv.view)}${rv.model ? `（${esc(rv.model)}，提示词 ${esc(rv.prompt_version)}，${rv.latency_ms} 毫秒）` : ''}${rv.errors?.length ? ` <span class="s-review small">${esc(rv.errors.join('；'))}</span>` : ''}</summary><pre class="raw">${esc(rv.text || '')}</pre></details>`).join('');
   const marksBlock = marksSection();
+  const motionBlock = motionSection();
   const truthBlock = v.validation ? `<h3>验证标注</h3><pre class="raw">${esc(JSON.stringify({ subject_id: v.subject_id, truth: v.truth, meta: v.meta }, null, 2))}</pre>` : '';
 
   el.innerHTML = `
@@ -845,6 +984,7 @@ function renderReport() {
   <p class="muted small">岗位要求：${(job.requirements || []).map(esc).join('；')}。标“只记录”的项目在没有书面岗位依据前不作判定，只保存结果用于评估。</p>
   <table><tr><th>项目</th><th>依据</th><th>结果</th><th>说明</th></tr>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="small nowrap">${r.kind}</td><td>${decisionCell(r)}</td><td class="small">${esc(r.reason)}</td></tr>`).join('')}</table>
   ${marksBlock}
+  ${motionBlock}
   <h3>各视角证据与判定</h3>
   <p class="muted small">L1 为浏览器内关键点 + 规则；L2 为视觉大模型；仲裁规则与离线评测相同（configs/thresholds.yaml 的 arbitration 段）。</p>
   ${frameBlock}
@@ -873,6 +1013,21 @@ function renderReport() {
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
     a.download = `limbcheck-${S.sessionId}.json`; a.click();
   };
+}
+
+// ---------- 肢体协调性：各动作的指标与结论（服务端 limbcheck/motion.py 分析，阈值见 configs/thresholds.yaml 的 motion 段） ----------
+const MOTION_METRIC_CN = { T: '侧平举', up: '上举', left: '左', right: '右', abduction: '外展角', elbow: '肘角', asym_deg: '左右差(°)', lift: '抬腿', sway: '晃动', depth: '深度', shift: '侧移', knee_asym_deg: '膝角差(°)', count: '次数', alternation: '交替比例', interval_cv: '节律变异', interval_ms: '平均间隔(毫秒)' };
+function fmtMetrics(m, prefix = '') {
+  return Object.entries(m || {}).filter(([, v]) => v != null).map(([k, v]) => typeof v === 'object' ? fmtMetrics(v, `${prefix}${MOTION_METRIC_CN[k] || k}·`) : `${prefix}${MOTION_METRIC_CN[k] || k} ${v}`).flat().join('，');
+}
+function motionSection() {
+  const co = S.arb.by_check?.coordination;
+  if (!co?.motion?.length) return '';
+  const V = { normal: ['正常', 's-pass'], abnormal: ['疑似异常', 's-review'], insufficient: ['帧数不足', 'muted'] };
+  const rows = co.motion.map(a => `<tr><td>${esc(a.title)}</td><td class="small">${a.frames} 帧${a.ms ? ` · ${(a.ms / 1000).toFixed(1)} 秒` : ''}</td><td class="small">${esc(fmtMetrics(a.metrics)) || '—'}</td><td class="${V[a.verdict][1]}">${V[a.verdict][0]}${a.findings.map(f => `<br><span class="small">${esc(LABEL_CN[f.label] || f.label)}：${esc(f.note)}</span>`).join('')}</td></tr>`).join('');
+  return `<h3>肢体协调性（动作分析）</h3>
+  <p class="muted small">按动作过程中的关键点轨迹计算活动范围、左右对称、平衡和节律；只有关键点一路证据，发现问题时只建议人工确认（可回看分步证据截图）。</p>
+  <table><tr><th>动作</th><th>数据</th><th>指标</th><th>结论</th></tr>${rows}</table>`;
 }
 
 // ---------- 纹身 / 疤痕核验（按录用标准，规则见 configs/policies/marks.yaml） ----------
@@ -987,7 +1142,7 @@ async function init() {
         return await Cls.createFromOptions(vision, { baseOptions: { modelAssetPath: path, delegate: 'CPU' }, runningMode: 'VIDEO', ...extra });
       }
     };
-    poseLm = await make(PoseLandmarker, './models/pose_landmarker_full.task', { numPoses: 2 });
+    poseLm = await make(PoseLandmarker, './models/pose_landmarker_full.task', { numPoses: 2, outputSegmentationMasks: true });
     handLm = await make(HandLandmarker, './models/hand_landmarker.task', { numHands: 2, minHandDetectionConfidence: 0.5 });
     $('#modelStatus').textContent = `模型已就绪（${delegate}）`; $('#modelStatus').className = 'tag ok';
     window.__ready = true;

@@ -59,8 +59,26 @@ def make_body(arm_ratio: float = 1.0, scale: float = 100.0, offset=(300.0, 80.0)
         "left_hip": (0.35, 2.6), "right_hip": (-0.35, 2.6),
         "left_knee": (0.38, 3.8), "right_knee": (-0.38, 3.8),
         "left_ankle": (0.4, 4.9), "right_ankle": (-0.4, 4.9),
+        "left_heel": (0.38, 5.0), "right_heel": (-0.38, 5.0), "left_foot_index": (0.5, 5.15), "right_foot_index": (-0.5, 5.15),
     }
     return Body(joints={k: np.asarray(v, float) * scale + o for k, v in j.items()}, vis={k: vis for k in j}, score=vis)
+
+
+def draw_body(body: Body, shape=(640, 640), skip: tuple[str, ...] = ()) -> np.ndarray:
+    """按关键点画人体掩码（1 = 人）。skip 中的肢体（如 left_arm）只画近端段，模拟远端缺失而关键点仍"脑补"。"""
+    import cv2
+
+    from limbcheck.geometry import LIMB_SEGS
+
+    m = np.zeros(shape, np.uint8)
+    j = {k: tuple(np.round(v).astype(int)) for k, v in body.joints.items()}
+    cv2.fillPoly(m, [np.array([j["left_shoulder"], j["right_shoulder"], j["right_hip"], j["left_hip"]], np.int32)], 1)
+    for limb, segs in LIMB_SEGS.items():
+        for i, (a, b) in enumerate(segs):
+            if limb in skip and i == 1:
+                continue
+            cv2.line(m, j[a], j[b], 1, thickness=18)
+    return m
 
 
 class FakeKeypoints:

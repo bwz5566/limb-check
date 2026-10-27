@@ -31,6 +31,7 @@ os.environ.setdefault("LIMBCHECK_CONFIG_DIR", str(REPO / "configs"))
 from limbcheck.arbiter import arbitrate, worst  # noqa: E402
 from limbcheck.core import CHECK_DEFS, VIEW_CN, VIEW_CHECKS, CheckResult  # noqa: E402
 from limbcheck.marks import session_review, set_policy  # noqa: E402
+from limbcheck.motion import analyze as analyze_motion, motion_result  # noqa: E402
 from limbcheck.strictness import arbitration_cfg, default_level, levels, set_config  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
 from limbcheck.vlm import VLMClient  # noqa: E402
@@ -74,8 +75,9 @@ def mode_of(job: dict | None, check: str) -> str:
     return c.get("mode", "judge")
 
 
-def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None) -> dict:
+def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None) -> dict:
     """frames: [{view, l1: {check: CheckResult dict}, l2: {check: CheckResult dict}}]。
+    motion：动作步骤的关键点序列（格式见 limbcheck/motion.py），用于"肢体协调性"。
     与离线评测一致：按最后一次尝试仲裁（attempt = max_redo），另给出首次尝试的结论供统计重做率。"""
     job = JOBS.get(job_id)
     level = strictness_of(job, strictness)
@@ -129,6 +131,16 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
                 d = DECISION_OF_ACTION.get(r["action"]) or (
                     "fail" if auto_fail is not None and r.get("confidence", 0) >= auto_fail else "fail_suggested")
                 add(c, d, r["text"])
+    # 肢体协调性：分析动作序列（只有关键点一路，发现问题 → 疑似问题·待人工确认）
+    analysis = None
+    if motion and mode_of(job, "coordination") != "off":
+        analysis = analyze_motion(motion, WEB_CONFIG["thresholds"].get("motion"))
+        r = motion_result(analysis, WEB_CONFIG["thresholds"].get("motion"))
+        if r is not None:
+            mode = mode_of(job, "coordination")
+            final = arbitrate("coordination", r, None, cfg, mode, final_attempt)
+            by_check["coordination"] = {"mode": mode, "views": {}, "decision": final.decision, "shadow": final.shadow,
+                                        "notes": [], "reason": final.reason, "l1": r.to_dict(), "motion": analysis}
     overall = worst([e["decision"] for e in by_check.values() if e["mode"] == "judge"])
     return {"by_view": by_view, "by_check": by_check, "overall": overall, "job": job_id, "strictness": level,
             "prompt_version": prompt_version()}
@@ -201,7 +213,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, rv.to_dict())
         if self.path == "/api/arbitrate":
             t0 = time.perf_counter()
-            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"))
+            out = arbitrate_session(req.get("job"), req.get("frames") or [], req.get("strictness"), req.get("motion"))
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             return self._json(200, out)
         return self._json(404, {"error": "not found"})

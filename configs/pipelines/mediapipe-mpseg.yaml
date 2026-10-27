@@ -3,5 +3,5 @@ name: mediapipe-mpseg
 keypoints: {type: mediapipe}
 contour: {type: mpseg}
 segmenter: {type: mpseg}
-l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, hair.color]
+l1: [fingers.keypoints, fingers.contour, nails.delta_e, limbs.pose, limbs.contour, hair.color]
 vlm: env

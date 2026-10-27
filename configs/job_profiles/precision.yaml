@@ -6,9 +6,10 @@ requirements:
   - 上肢活动正常
   - 入职前需卸除美甲
 strictness: standard        # 筛选严格度 strict / standard / lenient（configs/strictness.yaml），可按场次临时切换
-steps: [env, stand, back, arms, neck, arms_close, palms, backs, flex, pinch, challenge]
+steps: [env, stand, back, arms, cross_touch, neck, arms_close, palms, backs, flex, pinch, challenge]
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
+  coordination: {enabled: true, mode: judge}   # 动作序列分析（configs/thresholds.yaml 的 motion 段）；只有关键点一路，发现问题只建议人工确认
   fingers:  {enabled: true, mode: judge, params: {pinch: true}}
   nails:    {enabled: true, mode: judge}         # 结论是"入职前需卸除"，不作淘汰条件
   tattoo:   {enabled: true, mode: judge}         # 按录用标准判定（书面依据见 basis）

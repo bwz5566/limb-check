@@ -12,6 +12,21 @@
       "basis_required": false,
       "appearance": false
     },
+    "coordination": {
+      "name": "肢体协调性",
+      "views": [],
+      "basis_required": false,
+      "appearance": false,
+      "motion_steps": [
+        "arms",
+        "cross_touch",
+        "legs",
+        "march",
+        "squat",
+        "flex",
+        "pinch"
+      ]
+    },
     "fingers": {
       "name": "手部（手指/手掌/手背）",
       "views": [
@@ -152,7 +167,10 @@
       "limb_symmetry": [
         0.75,
         1.33
-      ]
+      ],
+      "foot_min_visibility": 0.4,
+      "min_straight_angle": 120,
+      "contour_min": 0.5
     },
     "fingers": {
       "ref": {
@@ -180,6 +198,44 @@
     "hair": {
       "dyed_chroma_min": 18,
       "min_pixels": 400
+    },
+    "motion": {
+      "min_frames": 8,
+      "min_vis": 0.5,
+      "arms": {
+        "t_min_abduction": 70,
+        "up_min_abduction": 140,
+        "max_asym_deg": 25,
+        "min_elbow": 140
+      },
+      "legs": {
+        "min_lift": 0.5,
+        "max_asym": 0.35,
+        "max_sway": 0.15
+      },
+      "squat": {
+        "min_depth": 0.25,
+        "max_knee_asym_deg": 25,
+        "max_shift": 0.15
+      },
+      "march": {
+        "lift": 0.35,
+        "min_count": 6,
+        "min_alternation": 0.7,
+        "max_cv": 0.45,
+        "max_count_diff": 2
+      },
+      "cross_touch": {
+        "touch_ratio": 0.45,
+        "min_count": 4,
+        "min_alternation": 0.7,
+        "max_cv": 0.5
+      },
+      "confidence": {
+        "normal": 0.85,
+        "normal_single": 0.7,
+        "abnormal": 0.6
+      }
     },
     "multi_frame": {
       "window": 9,
@@ -219,6 +275,7 @@
         "stand",
         "back",
         "arms",
+        "cross_touch",
         "neck",
         "arms_close",
         "palms",
@@ -235,6 +292,11 @@
             "upper": true,
             "lower": false
           }
+        },
+        "coordination": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
         },
         "fingers": {
           "enabled": true,
@@ -296,6 +358,7 @@
         "stand",
         "back",
         "arms",
+        "cross_touch",
         "neck",
         "arms_close",
         "palms",
@@ -311,6 +374,11 @@
             "upper": true,
             "lower": false
           }
+        },
+        "coordination": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
         },
         "fingers": {
           "enabled": true,
@@ -373,9 +441,11 @@
         "stand",
         "back",
         "arms",
+        "cross_touch",
         "neck",
         "arms_close",
         "legs",
+        "march",
         "squat",
         "palms",
         "backs",
@@ -390,6 +460,11 @@
             "upper": true,
             "lower": true
           }
+        },
+        "coordination": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
         },
         "fingers": {
           "enabled": true,
@@ -452,6 +527,7 @@
         "stand",
         "back",
         "arms",
+        "cross_touch",
         "neck",
         "arms_close",
         "palms",
@@ -467,6 +543,11 @@
             "upper": true,
             "lower": false
           }
+        },
+        "coordination": {
+          "enabled": true,
+          "mode": "judge",
+          "params": {}
         },
         "fingers": {
           "enabled": true,

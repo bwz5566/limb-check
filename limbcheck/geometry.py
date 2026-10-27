@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from .keypoints import HAND_FINGER_IDS, LIMB_CN, LIMBS, Body
+from .keypoints import FEET, FOOT_CN, HAND_FINGER_IDS, LIMB_CN, LIMBS, Body
 from .core import FINGER_CN, FINGERS, CheckResult, Finding
 
 
@@ -222,11 +222,13 @@ SEGMENT_CN = {"upper_arm": "上臂", "forearm": "前臂", "thigh": "大腿", "sh
 
 
 def limbs_result(body: Body | None, th_pose: dict, source: str, upper: bool = True, lower: bool = True,
-                 image_size: tuple[int, int] | None = None) -> CheckResult:
-    """四肢：关节可见度 + 左右肢段长度比。
+                 image_size: tuple[int, int] | None = None, straight: bool = False) -> CheckResult:
+    """四肢：关节可见度 + 左右肢段长度比 + 伸直姿势下的关节弯折。
 
     肢体缺失时关键点模型常在画面内给出低可见度的"脑补"点 → 记疑似；
     关节落在画面外 → 视为没拍全（画质 / 姿势问题，应重拍），不算疑似。
+    straight：该视角要求手臂、腿伸直（站立、侧平举、上举）。此时肘 / 膝明显弯折，多是前臂或小腿缺失、
+    关键点模型把腕 / 踝"折"回到上臂 / 大腿上（人体分割复核也查不出来），或关节本身伸不直 → 记疑似。
     """
     if body is None:
         return CheckResult("limbs", source, None, 0.0, [], False, [], "未检测到人体")
@@ -255,6 +257,30 @@ def limbs_result(body: Body | None, th_pose: dict, source: str, upper: bool = Tr
             parts.append(k)
             findings.append(Finding("limbs", k, "low_visibility", True, round(0.6 * (1 - v), 3), source, round(v, 3),
                                     f"{LIMB_CN[k]}关键点可见度低（{v:.2f}），疑似缺失或被遮挡"))
+    # 双脚：脚跟、脚尖点可见度（鞋子不影响，脚缺失时模型多给出低可见度的点）；脚出画只记录，不影响结论
+    feet_out = []
+    if lower:
+        for k, (heel, toe) in FEET.items():
+            if heel not in body.joints or toe not in body.joints:
+                continue
+            if not (inside(heel) and inside(toe)):
+                feet_out.append(k)
+                continue
+            v = min(body.vis.get(heel, 0.0), body.vis.get(toe, 0.0))
+            if v < th_pose.get("foot_min_visibility", min_vis):
+                parts.append(k)
+                findings.append(Finding("limbs", k, "low_visibility", True, round(0.5 * (1 - v), 3), source, round(v, 3),
+                                        f"{FOOT_CN[k]}关键点可见度低（{v:.2f}），疑似缺失或被遮挡"))
+    if straight:
+        for k in limbs:
+            if k in parts or k in out_of_frame or not all(body.has(j, min_vis) for j in LIMBS[k]):
+                continue
+            a = angle(*(body.joints[j] for j in LIMBS[k]))
+            if a < th_pose.get("min_straight_angle", 120):
+                parts.append(k)
+                findings.append(Finding("limbs", k, "folded", True, 0.55, source, round(a, 1),
+                                        f"{LIMB_CN[k]}{'肘' if k.endswith('arm') else '膝'}关节弯折 {a:.0f}°（该姿势应伸直），"
+                                        "疑似远端缺失或关节伸不直"))
     for seg, (l, r) in SEGMENTS.items():
         if (seg in ("upper_arm", "forearm") and not upper) or (seg in ("thigh", "shank") and not lower):
             continue
@@ -274,7 +300,65 @@ def limbs_result(body: Body | None, th_pose: dict, source: str, upper: bool = Tr
         return CheckResult("limbs", source, None, 0.0, [], False, findings,
                            "、".join(LIMB_CN[k] for k in out_of_frame) + "未完整入框")
     conf = min(1.0, min(vis_all) / max(min_vis, 1e-6) * 0.8) if vis_all else 0.0
-    return CheckResult("limbs", source, False, round(conf, 3), [], True, findings)
+    note = "、".join(FOOT_CN[k] for k in feet_out) + "未完整入框（不影响结论）" if feet_out else ""
+    return CheckResult("limbs", source, False, round(conf, 3), [], True, findings, note)
+
+
+# 肢体轮廓复核：关键点模型在肢体缺失时常沿着身体"补"出关节，用人体分割掩码检查每段肢体上是否真的有人
+LIMB_SEGS = {
+    "left_arm": (("left_shoulder", "left_elbow"), ("left_elbow", "left_wrist")),
+    "right_arm": (("right_shoulder", "right_elbow"), ("right_elbow", "right_wrist")),
+    "left_leg": (("left_hip", "left_knee"), ("left_knee", "left_ankle")),
+    "right_leg": (("right_hip", "right_knee"), ("right_knee", "right_ankle")),
+}
+
+
+def limb_coverage(mask: np.ndarray, body: Body, limb: str, radius: int) -> tuple[float, float] | None:
+    """(近端段覆盖率, 远端段覆盖率)：每段 1/4、1/2、3/4 处采样，落在掩码内的比例。关节缺失返回 None。"""
+    h, w = mask.shape[:2]
+    out = []
+    for a, b in LIMB_SEGS[limb]:
+        if a not in body.joints or b not in body.joints:
+            return None
+        pa, pb = np.asarray(body.joints[a], float), np.asarray(body.joints[b], float)
+        hits = n = 0
+        for t in (0.25, 0.5, 0.75):
+            x, y = np.round(pa + t * (pb - pa)).astype(int)
+            if 0 <= x < w and 0 <= y < h:
+                n += 1
+                hits += bool(mask[max(0, y - radius): y + radius + 1, max(0, x - radius): x + radius + 1].any())
+        out.append(hits / n if n else 1.0)
+    return out[0], out[1]
+
+
+def limbs_contour_result(mask: np.ndarray, body: Body | None, th_pose: dict, source: str, upper: bool = True,
+                         lower: bool = True) -> CheckResult | None:
+    """远端段（前臂、小腿）大部分落在人体掩码外 → 疑似该肢体缺失（关键点脑补）。"""
+    if body is None or mask is None:
+        return None
+    thr = th_pose.get("contour_min", 0.5)
+    radius = max(2, int(0.02 * (torso_len(body) if all(body.has(k) for k in ("left_shoulder", "left_hip", "right_shoulder", "right_hip")) else min(mask.shape))))
+    findings, parts, covs = [], [], []
+    for limb in LIMB_SEGS:
+        if (limb.endswith("arm") and not upper) or (limb.endswith("leg") and not lower):
+            continue
+        cov = limb_coverage(mask, body, limb, radius)
+        if cov is None:
+            continue
+        near, far = cov
+        covs.append(min(near, far))
+        if far < thr or near < thr:
+            parts.append(limb)
+            c = min(near, far)
+            findings.append(Finding("limbs", limb, "limb_off_mask", True, round(0.5 + 0.5 * (1 - c), 3), source, {"proximal": near, "distal": far},
+                                    f"{LIMB_CN[limb]}{'远端' if far < near else '近端'}只有 {c:.0%} 落在人体轮廓内，疑似缺失（关键点脑补）"))
+        else:
+            findings.append(Finding("limbs", limb, "normal", False, round(0.5 + 0.5 * min(near, far), 3), source, {"proximal": near, "distal": far}))
+    if not findings:
+        return None
+    if parts:
+        return CheckResult("limbs", source, True, max(f.confidence for f in findings if f.positive), parts, True, findings)
+    return CheckResult("limbs", source, False, round(0.5 + 0.5 * min(covs), 3), [], True, findings)
 
 
 # ---------------- 画质 ----------------
