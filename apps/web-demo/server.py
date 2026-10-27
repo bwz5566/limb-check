@@ -126,7 +126,7 @@ class ServerJudge:
                 from limbcheck.config import load_job_profiles, load_thresholds
                 from limbcheck.pipeline import Pipeline, load_pipeline_spec
             except ImportError as e:
-                self.error = f"缺少依赖（{e}），请 pip install -e \".[mediapipe]\""
+                self.error = f'缺少依赖（{e}）。请在仓库根目录（{REPO}）运行：python -m pip install -e ".[mediapipe,rtmw]"'
                 return
             self._th = load_thresholds()
             self._profiles = load_job_profiles()
@@ -139,6 +139,8 @@ class ServerJudge:
                 except Exception as e:   # 依赖没装、模型下载失败等 → 试下一个
                     errors.append(f"{name}: {type(e).__name__}: {e}"[:300])
             self.error = "；".join(errors)
+            if "ModuleNotFoundError" in self.error:
+                self.error += f'。请在仓库根目录（{REPO}）运行：python -m pip install -e ".[mediapipe,rtmw]"'
 
     def status(self) -> dict:
         return {"enabled": self.base is not None, "pipeline": self.base.name if self.base else None,
