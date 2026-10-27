@@ -250,3 +250,30 @@ def test_arbitrate_session_summary(server):
     s = out["summary"]
     assert s["outcome"] == "manual" and any("握拳" in m["reason"] for m in s["manual"]) and [g["id"] for g in s["groups"]] == ["hands"]
     assert server.WEB_CONFIG["summary"]["fixable"]["nails"]
+
+
+def test_report_s20261027_cases(server):
+    """实测报告 S20261027-181043：两路都认为正常却交了人工复核的三种情况，现在都自动通过。"""
+    fingers_kp = CheckResult("fingers", "L1:rtmw+hand", False, 0.753).to_dict()        # 小指比例临近阈值
+    fingers_l2 = CheckResult("fingers", "L2:x", False, 0.95).to_dict()
+    unverified = CheckResult("fingers", "L1:rtmw+hand+contour-skin", None, 0.0, note="有手指蜷起或并拢").to_dict()
+    nails_far = CheckResult("nails", "L1:deltaE", False, 0.75).to_dict()
+    nails_l2 = CheckResult("nails", "L2:x", False, 0.95).to_dict()
+    frames = [{"view": "palms", "l1_server": {"fingers": unverified}, "l2": {"fingers": fingers_l2}},
+              {"view": "backs", "l1_server": {"fingers": fingers_kp, "nails": nails_far}, "l2": {"fingers": fingers_l2, "nails": nails_l2}},
+              {"view": "nails_close", "l1_server": {"nails": nails_far}, "l2": {"nails": nails_l2}}]
+    out = server.arbitrate_session("precision", frames, checks=["fingers", "nails"])
+    assert out["by_view"]["palms"]["fingers"]["decision"] == "pass"
+    assert out["by_view"]["backs"]["fingers"]["decision"] == "pass"
+    assert out["by_check"]["nails"]["decision"] == "pass"
+
+
+def test_nails_close_view_decides(server):
+    """拍了指甲近景时以近景为准：手背远景的色差法疑似甲油只记录。"""
+    far = CheckResult("nails", "L1:deltaE", True, 0.8, ["right_hand"]).to_dict()
+    ok = CheckResult("nails", "L2:x", False, 0.95).to_dict()
+    frames = [{"view": "backs", "l1": {"nails": far}}, {"view": "nails_close", "l1": {"nails": ok}, "l2": {"nails": ok}}]
+    e = server.arbitrate_session("precision", frames, checks=["nails"])["by_check"]["nails"]
+    assert e["views"]["backs"] != "pass" and e["decision"] == "pass" and e["primary_view"] == "nails_close"
+    e = server.arbitrate_session("precision", frames[:1], checks=["nails"])["by_check"]["nails"]
+    assert e["decision"] != "pass"

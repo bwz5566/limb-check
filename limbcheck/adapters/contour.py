@@ -229,7 +229,7 @@ def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expect
                    open_hand: bool = False) -> tuple[CheckResult, dict]:
     """返回 (CheckResult, 每只手每根手指及掌面的覆盖率)。
     open_hand：张开五指的视角（掌心、手背）。此时有手指蜷起或并拢就无法逐指确认（被遮挡、缺失的手指关键点会"藏"在掌面或相邻手指上），
-    没有发现问题时也不给"正常"，结果为"无法判断"交人工。"""
+    没有发现问题时也不给"正常"，结果为"无法判断"（画质仍算合格）：其余来源够确定时按其余来源处理，否则交人工。"""
     source = f"L1:contour-{backend.name}"
     thr = th.get("tip_on_mask_min", 0.5)
     palm_thr = th.get("palm_on_mask_min", 0.7)
@@ -269,7 +269,8 @@ def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expect
     if parts:
         return CheckResult("fingers", source, True, max(f.confidence for f in findings), sorted(set(parts)), True, findings), detail
     if unverified:
-        return CheckResult("fingers", source, None, 0.0, [], False, findings, "有手指蜷起或并拢，无法逐指确认每根手指都在"), detail
+        # 只是这一路无法判断，不是画质问题：其余来源（大模型）够确定时按其余来源处理，不再一律转人工
+        return CheckResult("fingers", source, None, 0.0, [], True, findings, "有手指蜷起或并拢，无法逐指确认每根手指都在"), detail
     if len(hands) < expected or not covs:
         return CheckResult("fingers", source, None, 0.0, [], False, findings, f"只检测到 {len(hands)} 只手"), detail
     return CheckResult("fingers", source, False, round(0.5 + 0.5 * min(covs), 3), [], True, findings), detail

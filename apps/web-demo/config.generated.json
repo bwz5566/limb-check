@@ -267,6 +267,7 @@
     "arbitration": {
       "strategy": "default",
       "high_conf": 0.8,
+      "agree_min_conf": 0.7,
       "auto_fail_conf": 0.85,
       "auto_fail_single_source": false,
       "low_conf": 0.5,
@@ -1019,6 +1020,7 @@
           "pointed": "block"
         }
       },
+      "primary_view": "nails_close",
       "without_l2": "review",
       "l1_max_confidence": 0.8
     }
@@ -1036,6 +1038,7 @@
         },
         "arbitration": {
           "high_conf": 0.9,
+          "agree_min_conf": 0.85,
           "auto_fail_conf": 0.75
         },
         "marks": {
@@ -1092,6 +1095,7 @@
         },
         "arbitration": {
           "high_conf": 0.8,
+          "agree_min_conf": 0.7,
           "auto_fail_conf": 0.85
         },
         "marks": {}
@@ -1106,6 +1110,7 @@
         },
         "arbitration": {
           "high_conf": 0.7,
+          "agree_min_conf": 0.6,
           "auto_fail_conf": 0.92
         },
         "marks": {

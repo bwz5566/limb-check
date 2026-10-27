@@ -298,7 +298,7 @@ function handOverlap(hands) {
   const iw = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), ih = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
   return iw > 0 && ih > 0 && iw * ih > 0.05 * Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
 }
-// 四指没分开时，被遮挡的手指可能"藏"在相邻手指上，像素上无法确认 → 不给"正常"，交人工
+// 四指没分开时，被遮挡的手指可能"藏"在相邻手指上，像素上无法确认 → 这一路不给"正常"（其余来源够确定时按其余来源，否则交人工）
 const notSpread = ev => GAP_PAIRS.filter(([a, b]) => ev.gaps[`${a}-${b}`] === null);
 function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:skin-web') {
   const findings = [], parts = [], covs = [];
@@ -325,7 +325,7 @@ function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:sk
     if (openHand && notSpread(ev).length) { closed = true; findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, notSpread(ev).map(p => p.join('-')), `${SIDE_CN[side] || '手'}手指没有分开，无法逐指确认`)); }
   }
   if (parts.length) return Result('fingers', source, true, Math.max(...findings.filter(f => f.positive).map(f => f.confidence)), [...new Set(parts)].sort(), true, findings);
-  if (closed) return Result('fingers', source, null, 0, [], false, findings, '手指没有完全伸直分开，无法逐指确认每根手指都在');
+  if (closed) return Result('fingers', source, null, 0, [], true, findings, '手指没有完全伸直分开，无法逐指确认每根手指都在');
   if (unreliable) return Result('fingers', source, null, 0, [], false, findings, '背景与肤色太接近，无法用像素复核手指');
   if (hands.length < expected || !covs.length) return Result('fingers', source, null, 0, [], false, findings, `只检测到 ${hands.length} 只手`);
   return Result('fingers', source, false, r3(0.5 + 0.5 * Math.min(...covs)), [], true, findings);
@@ -1363,7 +1363,7 @@ function buildExport() {
     motion: motionPayload(),
     retakes: S.retakes || 0,
     reviews: S.reviewsDone,
-    arbitration_by_view: S.arb.by_view, arbitration: { by_check: S.arb.by_check, overall: S.arb.overall, error: S.arb.error },
+    arbitration_by_view: S.arb.by_view, arbitration: { by_check: S.arb.by_check, overall: S.arb.overall, summary: S.arb.summary, error: S.arb.error },
     duration_ms: S.durationMs,
   };
 }

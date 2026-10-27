@@ -22,5 +22,6 @@ shape:
   names: {round: 圆形, square: 方形, oval: 椭圆, pointed: 尖形}
   actions: {round: pass, square: pass, oval: pass, pointed: block}
 
+primary_view: nails_close   # 拍了指甲近景时只按近景的结论判定，手背等远景视角的结论只记录（远处色差法、大模型看不清指甲）；null 表示取各视角最严重的结论
 without_l2: review       # 拍了指甲近景但没有大模型结果时：review 交人工看指甲近景小图；pass 只按色差法的结论
 l1_max_confidence: 0.8   # L1 色差法（只看颜色）的置信度上限：低于仲裁的直接判定线 0.85，单靠色差法发现的甲油交人工确认

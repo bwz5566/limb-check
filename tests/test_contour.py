@@ -24,7 +24,7 @@ def test_closed_fingers_cannot_be_verified_in_open_hand_view(thresholds):
     h.pts[[14, 15, 16], 0] -= 0.12 * 120
     h.pts[[18, 19, 20], 0] -= 0.26 * 120
     r, _ = contour_result(draw_hand(h.pts), [h], SkinMask(), thresholds["contour"], expected=1, open_hand=True)
-    assert r.positive is None and not r.quality_ok and "并拢" in r.note
+    assert r.positive is None and r.quality_ok and "并拢" in r.note      # 这一路无法判断，不算画质不足
     r, _ = contour_result(draw_hand(h.pts), [h], SkinMask(), thresholds["contour"], expected=1)     # 单手近景等视角不要求张开
     assert r.positive is False
 

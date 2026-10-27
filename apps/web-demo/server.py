@@ -358,6 +358,13 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
             e["decision"] = worst([e["decision"], r["decision"]])
             e["shadow"] = worst([e["shadow"], r["shadow"]])
 
+    # 指甲：拍了指甲近景时以近景为准，其他视角（手背）的结论只记录
+    pv = nails_policy().get("primary_view")
+    close = by_view.get(pv, {}).get("nails") if pv else None
+    if close and "nails" in by_check:
+        e = by_check["nails"]
+        e["decision"], e["shadow"], e["primary_view"] = close["decision"], close["shadow"], pv
+
     def add(c: str, shadow: str, note: str) -> None:
         e = by_check.get(c)
         if e is None:
@@ -398,7 +405,8 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
             mode = mode_of(job, "coordination")
             final = arbitrate("coordination", r, None, cfg, mode, final_attempt)
             by_check["coordination"] = {"mode": mode, "views": {}, "decision": final.decision, "shadow": final.shadow,
-                                        "notes": [], "reason": final.reason, "l1": r.to_dict(), "motion": analysis}
+                                        "notes": [f.note for f in r.findings if f.positive][:6], "reason": final.reason,
+                                        "l1": r.to_dict(), "motion": analysis}
     overall = worst([e["decision"] for e in by_check.values() if e["mode"] == "judge"])
     summary = summarize(by_check, steps, checks, {c: mode_of(job, c) for c in CHECK_DEFS["checks"]})
     return {"by_view": by_view, "by_check": by_check, "overall": overall, "summary": summary, "job": job_id, "strictness": level,

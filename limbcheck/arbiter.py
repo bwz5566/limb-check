@@ -2,6 +2,7 @@
 
 规则：
 - 能明确判断的直接判：所有可用来源都认为正常、置信度都 ≥ high_conf、画质合格 → 自动"满足"；
+  两路都认为正常时，一路 ≥ high_conf、另一路 ≥ agree_min_conf 也自动"满足"；
   认为有问题、置信度 ≥ auto_fail_conf（默认策略还要求两路一致）→ 直接"不符合"（fail）。
 - 置信度不够、两路不一致 → fail_suggested / review，转人工；auto_fail_conf 设为 null 时退回"有问题一律转人工"。
 - 阈值随筛选严格度（configs/strictness.yaml）变化，见 limbcheck.strictness.arbitration_cfg。
@@ -24,7 +25,8 @@ from dataclasses import asdict, dataclass
 from .core import FAIL, FAIL_SUGGESTED, NOT_ASSESSED, PASS, REDO, REVIEW, CheckResult
 from .registry import get, register
 
-DEFAULT_CFG = {"high_conf": 0.8, "low_conf": 0.5, "max_redo": 1, "auto_fail_conf": None, "auto_fail_single_source": False}
+DEFAULT_CFG = {"high_conf": 0.8, "agree_min_conf": None, "low_conf": 0.5, "max_redo": 1, "auto_fail_conf": None,
+               "auto_fail_single_source": False}
 SEVERITY = {NOT_ASSESSED: 0, PASS: 1, REDO: 2, REVIEW: 3, FAIL_SUGGESTED: 4, FAIL: 5}
 
 
@@ -96,6 +98,11 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
         return REVIEW, f"{'、'.join(missing)} 无法判断，其余来源置信度不足"
     if conf >= hi:
         return PASS, "两路一致：正常" if len(valid) == 2 else f"仅 {valid[0].source}：正常且置信度高"
+    # 两路都认为正常：一路 ≥ high_conf、另一路 ≥ agree_min_conf 也自动通过（如关键点法手指比例临近阈值置信度偏低，大模型很确定）
+    agree = cfg.get("agree_min_conf")
+    if len(valid) == 2 and agree is not None and conf >= agree and max(r.confidence for r in valid) >= hi:
+        low = min(valid, key=lambda r: r.confidence)
+        return PASS, f"两路一致：正常（{low.source} 置信度 {conf:.2f}，另一路 ≥ {hi}）"
     if can_redo:
         return REDO, f"认为正常但置信度低（{conf:.2f}）"
     return REVIEW, f"重做后置信度仍低（{conf:.2f}）"

@@ -5,6 +5,7 @@
 #   marks：覆盖录用标准里的动作（pass / review / block），同名键逐层合并
 #   arbitration：覆盖仲裁阈值
 #     high_conf       所有来源都认为正常、且置信度 ≥ 此值 → 自动"满足"
+#     agree_min_conf  两路都认为正常时，一路 ≥ high_conf、另一路 ≥ 此值也自动"满足"
 #     auto_fail_conf  命中不符合条款（或两路都认为有问题）且置信度 ≥ 此值 → 直接判"不符合"；低于此值 → 转人工
 #
 # 模型微调后：先用 `limbcheck calibrate` 在带标注的验证集上扫描这两个阈值，按每一档的目标（见 target）选值再写回这里。
@@ -16,7 +17,7 @@ levels:
     description: 临界和拿不准的情况按不录用处理，只放行明确合格的
     target: 漏放（不合格被自动放行）≤ 1%，可接受较多误拦
     calibration: {max_wrong_pass: 0.01, max_wrong_fail: 0.10}   # limbcheck calibrate 选阈值的约束
-    arbitration: {high_conf: 0.9, auto_fail_conf: 0.75}
+    arbitration: {high_conf: 0.9, agree_min_conf: 0.85, auto_fail_conf: 0.75}
     marks:
       measure: {near_action: block}                    # 面积接近参照物 → 按超标处理
       content:
@@ -38,7 +39,7 @@ levels:
     description: 按招聘方录用标准原文执行，"以核验为准"的条款交人工
     target: 误拦 ≤ 3%，漏放 ≤ 3%
     calibration: {max_wrong_pass: 0.03, max_wrong_fail: 0.03}
-    arbitration: {high_conf: 0.8, auto_fail_conf: 0.85}
+    arbitration: {high_conf: 0.8, agree_min_conf: 0.7, auto_fail_conf: 0.85}
     marks: {}
 
   lenient:
@@ -46,7 +47,7 @@ levels:
     description: 只拦截明确不符合的，临界和次要条款放行
     target: 误拦（合格被自动拦截）≤ 1%，可接受较多漏放
     calibration: {max_wrong_pass: 0.10, max_wrong_fail: 0.01}
-    arbitration: {high_conf: 0.7, auto_fail_conf: 0.92}
+    arbitration: {high_conf: 0.7, agree_min_conf: 0.6, auto_fail_conf: 0.92}
     marks:
       measure: {near_action: pass}
       content:

@@ -254,8 +254,9 @@ def _cross_touch(frames, th, out):
             continue
         sw = _dist(f.p["left_shoulder"], f.p["right_shoulder"]) + 1e-9
         for s, o in (("left", "right"), ("right", "left")):
-            if f"{s}_wrist" in f.p:
-                sig.append((f.t, _dist(f.p[f"{s}_wrist"], f.p[f"{o}_shoulder"]) / sw, s))
+            # 手放下时手腕常在画面外、可见度低：算"离开肩部"，否则两次摸肩之间没有离开，会被合并成一次（浏览器端照常计数）
+            d = _dist(f.p[f"{s}_wrist"], f.p[f"{o}_shoulder"]) / sw if f"{s}_wrist" in f.p else math.inf
+            sig.append((f.t, d, s))
     return _alternating(_events(sig, t["touch_ratio"], t["touch_ratio"] * 1.5, False), t, out, "arms", "交叉摸肩")
 
 

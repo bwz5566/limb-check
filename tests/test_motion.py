@@ -108,6 +108,20 @@ def test_cross_touch_alternation():
     assert a[0]["metrics"]["count"] == 6 and a[0]["metrics"]["alternation"] == 1.0 and a[0]["verdict"] == "normal"
 
 
+def test_cross_touch_counts_when_lowered_wrist_leaves_frame():
+    """实测：手放下时手腕在画面外、可见度很低，两次摸肩之间看不到"离开"，曾被合并成一次（浏览器 6 次、服务端只数到 2 次）。"""
+    def hidden(k):
+        k = {n: list(v) for n, v in k.items()}
+        for s in ("left", "right"):
+            k[f"{s}_wrist"][2] = 0.05
+        return k
+    fr = []
+    for c in range(6):
+        fr += [(0, hidden(pose()))] * 5 + [(0, pose(touch="right" if c % 2 == 0 else "left"))] * 5
+    a, _ = run({"id": "cross_touch", "status": "pass", "seq": seq(fr)})
+    assert a[0]["metrics"]["count"] == 6 and a[0]["verdict"] == "normal"
+
+
 def test_timeout_and_insufficient():
     a, r = run({"id": "pinch", "status": "timeout", "note": "超时"}, {"id": "squat", "status": "pass", "seq": []})
     assert a[0]["findings"][0]["label"] == "incomplete" and a[1]["verdict"] == "insufficient"

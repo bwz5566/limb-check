@@ -594,7 +594,8 @@ image_quality 为 good、fair 或 poor；reason 不超过 50 字。
 ### 6.1 原则
 
 - 任何“有问题”的结论只给 `fail_suggested`（疑似问题·待人工确认），**系统从不输出最终“不通过”**。
-- 只有所有可用来源都认为正常、置信度都 ≥ `high_conf`（0.8）、画质合格时才自动“满足”。
+- 只有所有可用来源都认为正常、置信度都 ≥ `high_conf`（0.8）、画质合格时才自动“满足”；
+  两路都认为正常时，一路 ≥ `high_conf`、另一路 ≥ `agree_min_conf`（0.7）也自动“满足”。
 - 两路矛盾或拿不准时送人工；画质不够或都无法判断时，还有重做机会就先要求重做。
 
 ### 6.2 判定顺序（`arbiter.judge`，即默认策略 `default`）
@@ -615,6 +616,7 @@ image_quality 为 good、fair 或 poor；reason 不超过 50 字。
    5a. 有一路画质不合格（已经不能重做）           → review   “认为正常但画质不足”
    5b. 有一路无法判断：conf ≥ high_conf          → pass，否则 review
    5c. conf ≥ high_conf                       → pass
+   5c'. 两路都有结论、较高一路 ≥ high_conf、conf ≥ agree_min_conf → pass（未配置 agree_min_conf 时跳过）
    5d. 能重做                                  → redo     “认为正常但置信度低”
    5e. 否则                                    → review   “重做后置信度仍低”
 ```
