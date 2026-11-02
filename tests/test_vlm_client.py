@@ -19,6 +19,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         Handler.calls.append(body)
+        if len(body["messages"][1]["content"]) - 1 > self.server.max_images:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b'{"error": "At most 1 image(s) may be provided in one prompt."}')
+            return
         if "response_format" in body and self.server.reject_schema:
             self.send_response(400)
             self.end_headers()
@@ -39,6 +44,7 @@ class Handler(BaseHTTPRequestHandler):
 def server():
     srv = HTTPServer(("127.0.0.1", 0), Handler)
     srv.reject_schema = False
+    srv.max_images = 6
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
     srv.shutdown()
@@ -60,6 +66,15 @@ def test_schema_fallback(server):
     rv = c.review("palms", ["fingers"], ["data:image/jpeg;base64,AAAA"])
     assert any("退回普通模式" in e for e in rv.errors)
     assert rv.results["fingers"].positive is False
+
+
+def test_other_400_not_blamed_on_schema(server):
+    server.max_images = 1
+    c = VLMClient(f"http://127.0.0.1:{server.server_port}/v1", "mock-vl", use_schema=True)
+    rv = c.review("palms", ["fingers"], ["data:image/jpeg;base64,AAAA"] * 2)
+    assert not any("JSON Schema" in e for e in rv.errors)
+    assert any("At most 1 image" in e for e in rv.errors)
+    assert rv.results["fingers"].positive is None
 
 
 def test_connection_error_is_recorded():

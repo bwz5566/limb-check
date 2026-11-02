@@ -184,6 +184,7 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
     - 任一条为"有问题"标签 → 有问题（uncertain 的有问题标签置信度减半，仍按有问题处理，宁可多送人工）；
     - 全部为"正常"标签且不 uncertain → 正常（逐手的项目要求每只手都返回了）；
     - 其余（未返回、无法确定）→ 无法判断。
+    - 画质为 poor 时不认"正常"：看不清（甚至画面里没有人）时模型仍可能答"没有纹身"，按无法判断处理，免得漏检。
     - 提示词里带 "policy" 的项目改按录用标准判定：纹身、疤痕由 limbcheck.marks，指甲（policy 为 nails）由 limbcheck.nails；
       meta 为 {mm_per_px, img_w, img_h, scale_source, params}，用来把框换算成毫米、带上岗位参数。
     """
@@ -238,4 +239,9 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
         out[c] = CheckResult(check=c, source=source, positive=positive, confidence=round(conf, 3),
                              parts=sorted(set(pos_parts)), quality_ok=quality_ok, findings=findings,
                              note=note or parsed.get("reason", ""))
+    if not quality_ok:
+        for r in out.values():
+            if r.positive is False:
+                r.positive, r.confidence = None, 0.0
+                r.note = "画质不足，不能确认没有问题" + (f"：{r.note}" if r.note else "")
     return out

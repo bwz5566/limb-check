@@ -62,6 +62,20 @@ def test_bad_label_and_poor_quality():
     assert res.positive is None and res.quality_ok is False
 
 
+def test_poor_quality_never_confirms_clean():
+    items = [{"check": "tattoo", "part": "all_visible", "label": "none", "confidence": 1.0},
+             {"check": "scar", "part": "all_visible", "label": "none", "confidence": 1.0},
+             {"check": "fingers", "part": "right_hand", "label": "normal", "value": 5, "confidence": 0.9},
+             {"check": "fingers", "part": "left_hand", "label": "normal", "value": 5, "confidence": 0.9}]
+    parsed, _ = parse_reply(_reply(items, quality="poor"), ["fingers", "tattoo", "scar"])
+    res = to_check_results(parsed, ["fingers", "tattoo", "scar"], "palms", "L2:test")
+    for c in ("fingers", "tattoo", "scar"):
+        assert res[c].positive is None and res[c].confidence == 0.0 and "画质不足" in res[c].note
+    parsed, _ = parse_reply(_reply(items, quality="good"), ["fingers", "tattoo", "scar"])
+    res = to_check_results(parsed, ["fingers", "tattoo", "scar"], "palms", "L2:test")
+    assert all(res[c].positive is False for c in ("fingers", "tattoo", "scar"))
+
+
 def test_unparseable():
     parsed, errs = parse_reply("抱歉，我无法判断。", ["fingers"])
     assert parsed is None and errs
