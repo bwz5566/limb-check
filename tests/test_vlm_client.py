@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from limbcheck.vlm import VLMClient, env_options, parse_thinking
+from limbcheck.vlm import VLMClient, _is_private_host, env_options, merge_parsed, parse_thinking
 
 REPLY = {"items": [
     {"check": "fingers", "part": "right_hand", "label": "normal", "fingers": [], "value": 5, "confidence": 0.92},
@@ -74,7 +74,7 @@ def test_schema_fallback(server):
 
 def test_other_400_not_blamed_on_schema(server):
     server.max_images = 1
-    c = VLMClient(f"http://127.0.0.1:{server.server_port}/v1", "mock-vl", use_schema=True)
+    c = VLMClient(f"http://127.0.0.1:{server.server_port}/v1", "mock-vl", use_schema=True, images_per_request=2)
     rv = c.review("palms", ["fingers"], ["data:image/jpeg;base64,AAAA"] * 2)
     assert not any("JSON Schema" in e for e in rv.errors)
     assert any("At most 1 image" in e for e in rv.errors)
@@ -119,3 +119,32 @@ def test_truncated_output_is_reported(server):
     assert rv.results["fingers"].positive is None
     rv = VLMClient(f"http://127.0.0.1:{server.server_port}/v1", "mock-vl", max_tokens=8192).review("palms", ["fingers"], ["data:image/jpeg;base64,AAAA"])
     assert rv.errors == [] and rv.results["fingers"].positive is False
+
+
+def test_multiple_images_are_sent_one_per_request(server):
+    server.max_images = 1
+    c = VLMClient(f"http://127.0.0.1:{server.server_port}/v1", "mock-vl", use_schema=True)
+    n = len(Handler.calls)
+    rv = c.review("palms", ["fingers"], ["data:image/jpeg;base64,AAAA", "data:image/jpeg;base64,BBBB"])
+    sent = Handler.calls[n:]
+    assert len(sent) == 2 and all(len(b["messages"][1]["content"]) == 2 for b in sent)
+    assert rv.errors == [] and rv.results["fingers"].positive is False
+    assert len(rv.parsed["items"]) == 2      # 两张图返回的相同条目去重
+
+
+def _p(items, quality="good"):
+    return {"items": [{"check": "tattoo", "part": p, "label": l, "fingers": [], "value": None, "bbox": None, "attrs": {},
+                       "confidence": c, "uncertain": False} for p, l, c in items], "image_quality": quality, "reason": ""}
+
+
+def test_merge_parsed():
+    m = merge_parsed([_p([("all_visible", "none", 0.9)]), _p([("neck", "tattoo", 0.8), ("all_visible", "none", 0.95)], "fair")])
+    assert m["image_quality"] == "fair" and len(m["items"]) == 2
+    assert max(i["confidence"] for i in m["items"] if i["label"] == "none") == 0.95
+    assert merge_parsed([_p([("all_visible", "none", 0.9)])], missing=True)["image_quality"] == "poor"
+    assert merge_parsed([]) is None
+
+
+def test_private_hosts_bypass_proxy():
+    assert _is_private_host("http://192.168.81.155:8000/v1") and _is_private_host("http://localhost:8001/v1")
+    assert _is_private_host("http://10.0.0.8:8001/v1") and not _is_private_host("https://dashscope.aliyuncs.com/compatible-mode/v1")
