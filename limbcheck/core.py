@@ -53,13 +53,15 @@ SIDE_CN = {"right": "右手", "left": "左手"}
 
 # 仲裁结论
 PASS = "pass"                      # 满足（自动通过）
-FAIL_SUGGESTED = "fail_suggested"  # 认为有问题 → 进入人工确认，系统不输出最终"不通过"
+FAIL = "fail"                      # 明确不符合（置信度 ≥ auto_fail_conf，自动判定；保留申诉 / 线下复核渠道）
+FAIL_SUGGESTED = "fail_suggested"  # 认为有问题但置信度不够 → 进入人工确认
 REVIEW = "review"                  # 不一致或置信度不足 → 人工复核
 REDO = "redo"                      # 画质或姿势不满足 → 重做该步骤
 NOT_ASSESSED = "not_assessed"      # 未启用或 record_only 模式
-DECISIONS = (PASS, FAIL_SUGGESTED, REVIEW, REDO, NOT_ASSESSED)
+DECISIONS = (PASS, FAIL, FAIL_SUGGESTED, REVIEW, REDO, NOT_ASSESSED)
 DECISION_CN = {
     PASS: "满足",
+    FAIL: "不符合",
     FAIL_SUGGESTED: "疑似问题·待人工确认",
     REVIEW: "需人工复核",
     REDO: "需重做",

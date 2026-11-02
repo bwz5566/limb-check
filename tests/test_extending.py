@@ -22,11 +22,12 @@ def _make_config(tmp: Path) -> Path:
     checks = json.loads((cfg / "checks.json").read_text(encoding="utf-8"))
     checks["checks"]["jewelry"] = {"name": "首饰", "views": ["backs", "hand"], "basis_required": False, "appearance": True}
     (cfg / "checks.json").write_text(json.dumps(checks, ensure_ascii=False), encoding="utf-8")
-    prompts = json.loads((cfg / "prompts" / "v1.json").read_text(encoding="utf-8"))
+    pfile = cfg / "prompts" / f"{checks['default_prompt_version']}.json"
+    prompts = json.loads(pfile.read_text(encoding="utf-8"))
     prompts["checks"]["jewelry"] = {
         "rule": "jewelry：对每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 为 \"none\"（未佩戴）或 \"ring\"（戒指、手链等）。",
         "positive": ["ring"], "negative": ["none"], "per_hand": True}
-    (cfg / "prompts" / "v1.json").write_text(json.dumps(prompts, ensure_ascii=False), encoding="utf-8")
+    pfile.write_text(json.dumps(prompts, ensure_ascii=False), encoding="utf-8")
     p = cfg / "job_profiles" / "food.yaml"
     prof = yaml.safe_load(p.read_text(encoding="utf-8"))
     prof["checks"]["jewelry"] = {"enabled": True, "mode": "judge"}

@@ -1,0 +1,86 @@
+{
+  "_comment": "L2 视觉大模型提示词 v2（2026-10）：手部完整性加入手掌 / 手背畸形；纹身、疤痕按录用标准输出结构化属性（部位、框、内容类别、颜色深浅、与身份证 / 1 分硬币比较的大小、疤痕形态），由 limbcheck/marks.py 判定；新增污渍标签与颈部、手臂近景视角。v1 保留用于回归对比。",
+  "version": "v2",
+  "system": "你是工厂招聘远程检测的辅助复核员。只根据图片判断“本次要求评估的项目”，不要描述、推断或评价任何未要求的属性（如性别、年龄、民族、肤色、体型、宗教）。图片未镜像：画面左侧是受检者的右侧身体，画面右侧是受检者的左侧身体。看不清或无法确定时把 uncertain 设为 true，不要猜测。只输出一个 JSON 对象，不要输出任何其他文字。纹身、疤痕、污渍要仔细区分：纹身是皮下色素，边缘清晰、表面平整、不会被擦掉；疤痕是皮肤本身凸起或凹陷，颜色接近肤色或偏粉、偏白，有纹理；污渍、笔迹、颜料浮在皮肤表面，边缘模糊或有涂抹痕；痣、胎记、淤青、阴影、皱褶都不算。",
+  "view_desc": {
+    "palms": "受检者双手掌心朝向镜头、五指张开的近景",
+    "backs": "受检者双手手背朝向镜头、五指张开的近景",
+    "hand": "受检者一只手的近景",
+    "stand": "受检者正面站立的全身照",
+    "back": "受检者背对镜头站立的全身照",
+    "arms": "受检者双臂侧平举的全身照",
+    "arms_up": "受检者双臂上举的全身照",
+    "neck": "受检者颈部的近景（抬头、向左或向右转头，露出脖子两侧）",
+    "arms_out": "受检者双臂向前平伸、手背和小臂外侧朝向镜头的半身近景",
+    "arms_in": "受检者双臂向前平伸、掌心和小臂内侧朝向镜头的半身近景",
+    "head_front": "受检者头部和双肩的正面近景",
+    "head_back": "受检者头部和双肩的背面近景（背对镜头）",
+    "nails_close": "受检者双手手背朝向镜头、四指并拢指尖朝上的指甲近景"
+  },
+  "checks": {
+    "fingers": {
+      "rule": "fingers：对画面中每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 为 \"normal\"（五指完整，手掌、手背无残缺或畸形）、\"missing_or_short\"（有手指缺失或明显短缩）、\"deformed\"（手指、手掌或手背有明显畸形、残缺、弯曲变形、并指或多指、严重挛缩，在 value 中写明部位）或 \"not_visible\"（这只手看不清或不在画面中）；fingers 列出缺失、短缩或畸形的手指（thumb/index/middle/ring/little），没有则为 []；label 为 normal 或 missing_or_short 时 value 为这只手可见的手指数量。图上如有关键点连线只作参考，它可能把缺失的手指“补”出来，请以真实的皮肤轮廓为准。",
+      "positive": [
+        "missing_or_short",
+        "deformed"
+      ],
+      "negative": [
+        "normal"
+      ],
+      "per_hand": true
+    },
+    "nails": {
+      "rule": "nails：对每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 为 \"none\"（自然指甲）、\"polish\"（甲油，含透明亮油）、\"tips\"（甲片或贴片）或 \"extension\"（延长甲）。",
+      "positive": [
+        "polish",
+        "tips",
+        "extension"
+      ],
+      "negative": [
+        "none"
+      ],
+      "per_hand": true
+    },
+    "tattoo": {
+      "rule": "tattoo：每处可见纹身、每处疑似污渍各输出 1 条（手指纹身每根手指各 1 条）；没有时只输出 1 条：part 为 \"all_visible\"，label 为 \"none\"。part 只能用：neck、right_upper_arm、left_upper_arm、right_forearm、left_forearm、right_hand_back、left_hand_back、right_palm、left_palm、right_finger、left_finger、face、other（forearm 含手腕；手指用 right_finger / left_finger 并在 fingers 里写明哪根）。label 为 \"tattoo\"（纹身，含贴纸纹身）或 \"stain\"（污渍、圆珠笔或马克笔笔迹、颜料等可擦掉的表面痕迹）。bbox 为该处在图中的框 [x1, y1, x2, y2]，用 0 到 1000 的相对坐标（左上角为 0,0，右下角为 1000,1000）。纹身必须给出 attrs：content 从 benign（小星星、叶片、云朵、小花、波浪线条等无攻击性图案）、text_neutral（普通文字、字母、数字）、symbol（明显符号）、beast（龙、虎、豹等猛兽，含睡眠或闭眼状态）、deity_demon（牛鬼蛇神、鬼神形象）、skull_horror（骷髅、恐怖图案）、weapon（刀具、枪械）、gang（帮派、恐吓类图案或符号）、violent_totem（涉暴力图腾）、abusive_text（辱骂性文字）、vulgar（低俗、色情、违禁）、unclear（看不清）中选 1 个；text 为纹身中的文字（没有则为空字符串）；ink 为 \"faded\"（洗过或褪色的淡痕）、\"light\"（颜色浅）或 \"dark\"（颜色深）；vs_ref 为大小与参照物的比较：手指纹身与 1 分硬币（直径 1.8 cm，约一根手指宽）比，其他部位与身份证（8.56×5.4 cm，约成人手掌不含手指大小）比，填 \"smaller\"、\"near\" 或 \"larger\"；size_cm 为估计的 [宽, 高]（厘米）；count 为这一处包含的纹身个数（多个叠在一起时大于 1）；covers_scar 为是否覆盖或紧挨疤痕（true/false）；sticker 为是否像贴纸纹身（true/false）。拿不准是纹身、疤痕还是污渍时 uncertain 设为 true。",
+      "positive": [
+        "tattoo",
+        "stain"
+      ],
+      "negative": [
+        "none"
+      ],
+      "policy": "tattoo"
+    },
+    "scar": {
+      "rule": "scar：每处明显疤痕输出 1 条（一组多条平行划痕合为 1 条，count 写条数）；没有明显疤痕时只输出 1 条：part 为 \"all_visible\"，label 为 \"none\"。part 只能用：neck、right_upper_arm、left_upper_arm、right_forearm、left_forearm、right_hand_back、left_hand_back、right_palm、left_palm、right_finger、left_finger、face、other（forearm 含手腕；手指在 fingers 里写明哪根）。label 为 \"scar\"。需与痣、胎记、淤青、阴影、皱褶、纹身区分，拿不准时 uncertain 设为 true。bbox 为该处在图中的框 [x1, y1, x2, y2]，用 0 到 1000 的相对坐标。attrs：pattern 为 \"single\"（单条）、\"parallel_multiple\"（多条整齐平行的划痕）或 \"multiple_scattered\"（多处散在）；count 为条数；length_cm 为估计的最长一条的长度（厘米）；hypertrophic 为 \"none\"、\"mild\" 或 \"severe\"（明显凸起增生）；surgical 为是否像手术切口疤痕（直线、两侧有缝合点）；with_tattoo 为是否与纹身在同一处或被纹身覆盖。只描述疤痕的外观，不推测原因。",
+      "positive": [
+        "scar",
+        "stain"
+      ],
+      "negative": [
+        "none"
+      ],
+      "policy": "scar"
+    },
+    "hair": {
+      "rule": "hair：输出 1 条，part 为 \"head\"；label 为 \"natural\"（自然的黑、棕、灰白）、\"dyed\"（明显的整体染色）或 \"highlights\"（挑染或局部染色）；value 用中文写出主要颜色；看不到头发时 uncertain 设为 true。",
+      "positive": [
+        "dyed",
+        "highlights"
+      ],
+      "negative": [
+        "natural"
+      ]
+    },
+    "limbs": {
+      "rule": "limbs：输出 1 条，part 为 \"all\"；label 为 \"normal\"（双臂双腿完整可见）、\"missing_or_abnormal\"（有肢体缺失或明显异常，在 value 中写出部位）或 \"not_visible\"（有肢体不在画面中或被遮挡）。只判断肢体是否完整，不评价体型。",
+      "positive": [
+        "missing_or_abnormal"
+      ],
+      "negative": [
+        "normal"
+      ]
+    }
+  }
+}

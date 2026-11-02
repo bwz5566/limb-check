@@ -17,8 +17,12 @@ viz/
 reports/
 *.demo.json
 limbcheck-S*.json
+apps/web-demo/records/
 
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+# 本地密钥配置（网页 demo 的大模型 Key）
+.env

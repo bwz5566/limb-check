@@ -4,9 +4,11 @@ from limbcheck.prompts import build_messages, build_user_prompt, l2_checks_for, 
 
 
 def test_checks_for_views():
-    assert l2_checks_for("palms") == ["fingers"]
+    assert l2_checks_for("palms") == ["fingers", "tattoo", "scar"]
     assert l2_checks_for("backs") == ["fingers", "nails", "tattoo", "scar"]
-    assert l2_checks_for("stand", ["limbs", "hair"]) == ["limbs", "hair"]
+    assert l2_checks_for("arms_out") == ["tattoo", "scar"] and l2_checks_for("neck") == ["tattoo", "scar"]
+    assert l2_checks_for("stand", ["limbs", "tattoo"]) == ["limbs", "tattoo"]
+    assert l2_checks_for("head_front") == ["hair"] and l2_checks_for("head_back") == ["hair"]
 
 
 def test_prompt_only_mentions_enabled_checks():
@@ -58,6 +60,20 @@ def test_bad_label_and_poor_quality():
     assert any("不在约定范围" in e for e in errs)
     res = to_check_results(parsed, ["hair"], "stand", "L2:test")["hair"]
     assert res.positive is None and res.quality_ok is False
+
+
+def test_poor_quality_never_confirms_clean():
+    items = [{"check": "tattoo", "part": "all_visible", "label": "none", "confidence": 1.0},
+             {"check": "scar", "part": "all_visible", "label": "none", "confidence": 1.0},
+             {"check": "fingers", "part": "right_hand", "label": "normal", "value": 5, "confidence": 0.9},
+             {"check": "fingers", "part": "left_hand", "label": "normal", "value": 5, "confidence": 0.9}]
+    parsed, _ = parse_reply(_reply(items, quality="poor"), ["fingers", "tattoo", "scar"])
+    res = to_check_results(parsed, ["fingers", "tattoo", "scar"], "palms", "L2:test")
+    for c in ("fingers", "tattoo", "scar"):
+        assert res[c].positive is None and res[c].confidence == 0.0 and "画质不足" in res[c].note
+    parsed, _ = parse_reply(_reply(items, quality="good"), ["fingers", "tattoo", "scar"])
+    res = to_check_results(parsed, ["fingers", "tattoo", "scar"], "palms", "L2:test")
+    assert all(res[c].positive is False for c in ("fingers", "tattoo", "scar"))
 
 
 def test_unparseable():

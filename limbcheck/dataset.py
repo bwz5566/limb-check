@@ -10,7 +10,9 @@
 真值（truth）字段，任何字段为 null 表示"未标注"，不参与该项统计：
     fingers: {"right": ["index"], "left": []}     缺失或明显短缩的手指（thumb/index/middle/ring/little）
     nails:   {"right": false, "left": true}         是否有美甲（甲油、甲片、延长甲）
-    tattoo / scar: true | false                     是否有可见纹身 / 明显疤痕
+    tattoo / scar: "none" | "pass" | "review" | "block"   按录用标准（configs/policies/marks.yaml）人工核定的结论：
+                                                    无 / 有但符合标准 / 需核验 / 不符合；review、block 记为"有问题"。
+                                                    旧数据的 true | false（是否有可见纹身 / 明显疤痕）仍可读，按"有即有问题"计
     hair:    "natural" | "dyed" | "highlights"      发色
     limbs:   true | false                           是否有肢体缺失或明显异常
     attack:  "none" | "replay" | "photo" | "virtual_camera" | "other"   （会话级）防作弊测试类型
@@ -128,6 +130,8 @@ def truth_positive(sample_or_truth, check: str, sides: tuple[str, ...] = SIDES) 
         return v != "natural"
     if check == "attack":
         return v not in ("none", "", None)
+    if check in ("tattoo", "scar") and isinstance(v, str):
+        return v in ("review", "block")
     return bool(v)
 
 
@@ -192,6 +196,16 @@ def _bool(v: str):
     raise ValueError(f"无法识别的是/否取值 {v!r}")
 
 
+MARK_WORDS = {"none": "none", "无": "none", "pass": "pass", "符合": "pass", "review": "review", "核验": "review",
+              "需核验": "review", "block": "block", "不符合": "block"}
+
+
+def _mark(v: str):
+    """纹身 / 疤痕标注：none / pass / review / block（或中文），也接受旧的是 / 否。"""
+    w = (v or "").strip().lower()
+    return MARK_WORDS[w] if w in MARK_WORDS else _bool(v)
+
+
 def _fingers(v: str):
     v = (v or "").strip()
     if v == "":
@@ -228,8 +242,8 @@ def import_folder(image_dir: str | Path, labels_csv: str | Path, out_dir: str | 
                 truth = {
                     "fingers": {"right": _fingers(row.get("right_missing")), "left": _fingers(row.get("left_missing"))},
                     "nails": {"right": _bool(row.get("right_nails")), "left": _bool(row.get("left_nails"))},
-                    "tattoo": _bool(row.get("tattoo")),
-                    "scar": _bool(row.get("scar")),
+                    "tattoo": _mark(row.get("tattoo")),
+                    "scar": _mark(row.get("scar")),
                     "hair": (row.get("hair") or "").strip() or None,
                     "limbs": _bool(row.get("limbs")),
                 }

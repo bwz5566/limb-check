@@ -120,7 +120,7 @@ L2 客户端（`limbcheck/vlm.py`）只依赖 OpenAI 兼容的 `/chat/completion
 | --- | --- | --- |
 | 昇腾 vLLM-Ascend（内网，推荐） | `http://<昇腾服务器>:8001/v1` | `Qwen/Qwen3-VL-8B-Instruct`、`Qwen/Qwen3-VL-32B-Instruct` |
 | RTX 6000 上的 vLLM | `http://<RTX 服务器>:8001/v1` | 同上 |
-| 阿里云百炼 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-vl-max` |
+| 阿里云百炼 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.7-plus` |
 | 本地 Ollama | `http://localhost:11434/v1` | `qwen2.5vl:7b` |
 
 - 网页 demo：启动 `server.py` 前设环境变量。离线评测：环境变量，或命令行 `--vlm-base-url --vlm-model`，或流水线配置里 `vlm: {base_url: ..., model: ...}`（支持 `${VAR}` 引用环境变量）。
@@ -326,7 +326,7 @@ side_raise: {
 | `LIMBCHECK_CONFIG_DIR` | 配置目录（默认仓库 `configs/`）。可以给每个客户一份配置，代码不变 |
 | `LIMBCHECK_MODELS_DIR` | 模型文件目录（默认仓库 `models/`），网页和离线共用 |
 | `LIMBCHECK_PROMPT_VERSION` | 临时切换提示词版本 |
-| `VLM_BASE_URL` `VLM_MODEL` `VLM_API_KEY` `VLM_SCHEMA` | 大模型服务 |
+| `VLM_BASE_URL` `VLM_MODEL` `VLM_API_KEY` `VLM_SCHEMA` `VLM_THINKING` `VLM_TIMEOUT` `VLM_MAX_TOKENS` | 大模型服务 |
 
 ---
 

@@ -1,8 +1,11 @@
 """L1 / L2 一致性仲裁（仅标准库）。
 
-规则（与 docs/HANDOFF.md 9.8 一致）：
-- 任何"有问题"的结论都只给 fail_suggested，进入人工确认；系统从不输出最终"不通过"。
-- 只有在所有可用来源都认为正常、且置信度都 ≥ high_conf、且画质合格时才自动通过。
+规则：
+- 能明确判断的直接判：所有可用来源都认为正常、置信度都 ≥ high_conf、画质合格 → 自动"满足"；
+  两路都认为正常时，一路 ≥ high_conf、另一路 ≥ agree_min_conf 也自动"满足"；
+  认为有问题、置信度 ≥ auto_fail_conf（默认策略还要求两路一致）→ 直接"不符合"（fail）。
+- 置信度不够、两路不一致 → fail_suggested / review，转人工；auto_fail_conf 设为 null 时退回"有问题一律转人工"。
+- 阈值随筛选严格度（configs/strictness.yaml）变化，见 limbcheck.strictness.arbitration_cfg。
 - record_only 的检测项照常计算（shadow），但对外结论为 not_assessed。
 - l1 / l2 为 None 表示流水线里没有这一路（例如纹身没有 L1 模型）；
   positive 为 None 表示这一路跑了但无法判断。
@@ -10,16 +13,26 @@
 可替换：thresholds.yaml 的 arbitration.strategy 指定策略名（默认 default），
 自定义策略用 @register("arbiter", "名称") 注册一个 fn(l1, l2, cfg, attempt) -> (decision, reason)；
 arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）。
+
+纹身、疤痕、头发、指甲用 policy 策略：L2 结果里每处标记（头发为 L1 的发色、发长判定，指甲为每只手）已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
+判为 pass / review / block / clean，策略据此给结论：block → 疑似问题·待人工确认（附命中条款）；
+clean（疑似污渍）→ 请清洁后重做；review → 人工核验；全部符合 → 按默认规则看置信度。
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from .core import FAIL_SUGGESTED, NOT_ASSESSED, PASS, REDO, REVIEW, CheckResult
+from .core import FAIL, FAIL_SUGGESTED, NOT_ASSESSED, PASS, REDO, REVIEW, CheckResult
 from .registry import get, register
 
-DEFAULT_CFG = {"high_conf": 0.8, "low_conf": 0.5, "max_redo": 1}
-SEVERITY = {NOT_ASSESSED: 0, PASS: 1, REDO: 2, REVIEW: 3, FAIL_SUGGESTED: 4}
+DEFAULT_CFG = {"high_conf": 0.8, "agree_min_conf": None, "low_conf": 0.5, "max_redo": 1, "auto_fail_conf": None,
+               "auto_fail_single_source": False}
+SEVERITY = {NOT_ASSESSED: 0, PASS: 1, REDO: 2, REVIEW: 3, FAIL_SUGGESTED: 4, FAIL: 5}
+
+
+def _auto_fail(conf: float, cfg: dict) -> bool:
+    thr = cfg.get("auto_fail_conf")
+    return thr is not None and conf >= thr
 
 
 @dataclass
@@ -70,6 +83,9 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
                 return REDO, "两路不一致且有一方置信度低"
             return REVIEW, f"两路不一致：{' / '.join(f'{r.source}={_yn(r)}' for r in valid)}"
         who = "两路一致" if len(valid) == 2 else f"{valid[0].source}（单路）"
+        conf = min(r.confidence for r in valid)
+        if (len(valid) == 2 or cfg.get("auto_fail_single_source")) and not bad_quality and _auto_fail(conf, cfg):
+            return FAIL, f"{who}认为有问题，置信度 {conf:.2f}，直接判定"
         return FAIL_SUGGESTED, f"{who}认为有问题，待人工确认"
     # 全部认为正常
     conf = min(r.confidence for r in valid)
@@ -82,9 +98,55 @@ def judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = Non
         return REVIEW, f"{'、'.join(missing)} 无法判断，其余来源置信度不足"
     if conf >= hi:
         return PASS, "两路一致：正常" if len(valid) == 2 else f"仅 {valid[0].source}：正常且置信度高"
+    # 两路都认为正常：一路 ≥ high_conf、另一路 ≥ agree_min_conf 也自动通过（如关键点法手指比例临近阈值置信度偏低，大模型很确定）
+    agree = cfg.get("agree_min_conf")
+    if len(valid) == 2 and agree is not None and conf >= agree and max(r.confidence for r in valid) >= hi:
+        low = min(valid, key=lambda r: r.confidence)
+        return PASS, f"两路一致：正常（{low.source} 置信度 {conf:.2f}，另一路 ≥ {hi}）"
     if can_redo:
         return REDO, f"认为正常但置信度低（{conf:.2f}）"
     return REVIEW, f"重做后置信度仍低（{conf:.2f}）"
+
+
+def _verdicts(r: CheckResult | None) -> list[tuple[str, str, float]]:
+    """(verdict, 说明, 置信度)。value 有 kind 的（逐处标记、发色发长）用 note，跨处规则用命中的条款。"""
+    out = []
+    for f in (r.findings if r else []):
+        v = f.value if isinstance(f.value, dict) else None
+        if v and v.get("verdict"):
+            texts = [x["text"] for x in v.get("rules") or [] if x.get("action") == v["verdict"]]
+            out.append((v["verdict"], f.note if v.get("kind") else "；".join(texts), f.confidence))
+    return out
+
+
+def _whole_item(r: CheckResult | None) -> bool:
+    """整体判定（发色发长 hair_*、指甲 nail_*），不是纹身疤痕那样的逐处标记。"""
+    return any(isinstance(f.value, dict) and str(f.value.get("kind", "")).startswith(("hair_", "nail_")) for f in (r.findings if r else []))
+
+
+@register("arbiter", "policy")
+def policy_judge(l1: CheckResult | None, l2: CheckResult | None, cfg: dict | None = None, attempt: int = 0) -> tuple[str, str]:
+    """按录用标准逐处判定后的结论（纹身、疤痕）。没有标准判定信息时退回默认策略。"""
+    cfg = {**DEFAULT_CFG, **(cfg or {})}
+    vs = _verdicts(l1) + _verdicts(l2)
+    if not vs:
+        return judge(l1, l2, cfg, attempt)
+    pick = lambda a: [t for v, t, _ in vs if v == a]
+    if pick("block"):
+        conf = max(c for v, _, c in vs if v == "block")
+        if _auto_fail(conf, cfg):
+            return FAIL, f"按录用标准不符合（置信度 {conf:.2f}）：" + "；".join(pick("block"))
+        return FAIL_SUGGESTED, f"按录用标准疑似不符合，置信度 {conf:.2f} 不足以直接判定，待人工确认：" + "；".join(pick("block"))
+    if pick("clean"):
+        msg = "；".join(pick("clean"))
+        return (REDO, msg) if attempt < cfg["max_redo"] else (REVIEW, f"{msg}；已重拍仍存在时交人工核验")
+    if pick("review"):
+        return REVIEW, "需人工核验：" + "；".join(pick("review"))
+    decision, reason = judge(l1, l2, cfg, attempt)
+    passed = [t for v, t, _ in vs if v == "pass" and t]
+    if _whole_item(l1) or _whole_item(l2):      # 发色发长、指甲：列出各项判定
+        return decision, ("；".join(passed) + "；" if passed else "") + reason
+    return decision, (f"发现 {len(passed)} 处，均符合录用标准；" if passed else "") + reason
 
 
 def _yn(r: CheckResult) -> str:
@@ -106,6 +168,6 @@ def arbitrate(check: str, l1: CheckResult | None, l2: CheckResult | None, cfg: d
 
 
 def worst(decisions: list[str]) -> str | None:
-    """会话级汇总：取最严重的结论（fail_suggested > review > redo > pass > not_assessed）。"""
+    """会话级汇总：取最严重的结论（fail > fail_suggested > review > redo > pass > not_assessed）。"""
     ds = [d for d in decisions if d]
     return max(ds, key=SEVERITY.__getitem__) if ds else None

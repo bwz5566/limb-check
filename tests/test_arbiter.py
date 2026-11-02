@@ -46,6 +46,16 @@ def test_off_mode():
     assert arbitrate("hair", r(True), r(True), CFG, mode="off").shadow == NOT_ASSESSED
 
 
+def test_agree_min_conf():
+    """两路都认为正常：一路 ≥ high_conf、另一路 ≥ agree_min_conf 也自动通过（实测关键点法 0.75 + 大模型 0.95）。"""
+    cfg = {**CFG, "agree_min_conf": 0.7}
+    assert judge(r(False, 0.75), r(False, 0.95), cfg, 1)[0] == PASS
+    assert judge(r(False, 0.65), r(False, 0.95), cfg, 1)[0] == REVIEW     # 低于 agree_min_conf
+    assert judge(r(False, 0.75), r(False, 0.78), cfg, 1)[0] == REVIEW     # 两路都不够 high_conf
+    assert judge(r(False, 0.75), None, cfg, 1)[0] == REVIEW               # 单路不放宽
+    assert judge(r(False, 0.75), r(False, 0.95), CFG, 1)[0] == REVIEW     # 没配置时不放宽
+
+
 def test_agreement_flag():
     assert arbitrate("fingers", r(False), r(False), CFG).agree is True
     assert arbitrate("fingers", r(False), r(True), CFG).agree is False

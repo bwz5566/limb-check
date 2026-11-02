@@ -1,0 +1,27 @@
+# 指甲录用标准（招聘方 2026-10：美甲、指甲过长、过尖），由 limbcheck/nails.py 执行。
+# 条件还在讨论，改标准只改这里：改完运行 `limbcheck export-web-config`，再跑 pytest。
+# 动作（action）：pass 符合；review 需人工核验；block 不符合 → 系统给"疑似问题·待人工确认"或（置信度够高时）"不符合"。
+# 食品、精密岗位的美甲结论是"入职前需卸除"，写在 text 里；是否作为淘汰条件由岗位画像的 nails.mode 决定。
+version: 1
+
+# 款式：大模型给出 none / polish / tips / extension；L1 只能看出有颜色的甲油（色差法）
+styles:
+  none:      {name: 自然指甲, action: pass}
+  polish:    {name: 甲油（含透明亮油）, action: block, text: 有美甲（甲油），入职前需卸除}
+  tips:      {name: 甲片 / 贴片, action: block, text: 有美甲（甲片），入职前需卸除}
+  extension: {name: 延长甲, action: block, text: 有延长甲，入职前需卸除}
+
+# 长度、形状只由大模型（L2）看指甲近景判断（像素法在网络摄像头下不可靠，见 limbcheck/nails.py）；没启用大模型时交人工看报告里的指甲小图。
+# 长度：short（不超出指尖或只超出 1 毫米以内）/ medium（超出指尖约 1–3 毫米）/ long（超出 3 毫米以上）
+length:
+  names: {short: 短, medium: 偏长, long: 过长}
+  actions: {short: pass, medium: pass, long: block}   # 1–3 毫米很常见，只拦截过长
+
+# 形状：round（圆）/ square（方）/ oval（椭圆）/ pointed（尖、杏仁尖、锥形）
+shape:
+  names: {round: 圆形, square: 方形, oval: 椭圆, pointed: 尖形}
+  actions: {round: pass, square: pass, oval: pass, pointed: block}
+
+primary_view: nails_close   # 拍了指甲近景时只按近景的结论判定，手背等远景视角的结论只记录（远处色差法、大模型看不清指甲）；null 表示取各视角最严重的结论
+without_l2: review       # 拍了指甲近景但没有大模型结果时：review 交人工看指甲近景小图；pass 只按色差法的结论
+l1_max_confidence: 0.8   # L1 色差法（只看颜色）的置信度上限：低于仲裁的直接判定线 0.85，单靠色差法发现的甲油交人工确认

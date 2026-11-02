@@ -11,7 +11,9 @@
 <header>
   <h1>远程肢体完整性检测 · 效果验证 Demo</h1>
   <span id="modelStatus" class="tag">模型加载中…</span>
+  <span id="judgeStatus" class="tag">服务端判定：检查中…</span>
   <span id="vlmStatus" class="tag">大模型复核：检查中…</span>
+  <a class="tag link" href="records.html" target="_blank">检测记录与反馈统计</a>
 </header>
 
 <main>
@@ -23,6 +25,7 @@
       <div id="hint" class="hint"></div>
       <div class="hold"><div id="holdBar"></div></div>
       <div id="metrics" class="metrics"></div>
+      <div id="guide" class="guide" hidden><div class="g-svg"></div><div class="g-cap"></div><div class="g-count"></div></div>
     </div>
   </section>
 
@@ -32,14 +35,25 @@
         <select id="job"></select>
       </label>
       <p id="jobDesc" class="muted"></p>
+      <label class="field">筛选严格度（应聘人多从严、人少放宽）
+        <select id="strictness"></select>
+      </label>
+      <p id="strictnessDesc" class="muted small"></p>
+      <label class="field">检测范围（分模块测试用）
+        <select id="scope"><option value="all">全部步骤</option><option value="body">只测身体（四肢、协调性）</option><option value="hands">只测手部</option><option value="hair">只测头发（发色、发长）</option><option value="nails">只测指甲（美甲、长度、形状）</option></select>
+      </label>
+      <label class="field">受检者性别（招聘方填写，只用于"男生长发"规则，系统不从图像判断）
+        <select id="gender"><option value="">不填（发长只记录）</option><option value="male">男</option><option value="female">女</option></select>
+      </label>
       <label class="field inline"><input type="checkbox" id="voice" checked> 语音引导</label>
+      <label class="field inline"><input type="checkbox" id="useServer" checked> 服务端判定（高清截图交服务端模型判定，浏览器只做引导）</label>
       <label class="field inline"><input type="checkbox" id="useVlm" checked> 启用大模型复核（需在服务端配置）</label>
       <div class="consent">
         <label class="inline"><input type="checkbox" id="consent">
-          <span>我已了解并同意：本 demo 仅用于效果验证。视频只在本机浏览器内处理，只保留检测所需的几张证据截图；若启用大模型复核，这些截图会发送到所配置的模型服务。检测项为手指、四肢、美甲，以及纹身、疤痕、发色（后三项在没有书面岗位依据前只记录、不作判定）。系统不输出最终“不通过”，有疑问的项目一律交人工确认。</span></label>
+          <span>我已了解并同意：本 demo 仅用于效果验证。视频只在本机浏览器内处理，只保留检测所需的几张证据截图；这些截图会发送到检测服务器判定，若启用大模型复核，还会发送到所配置的模型服务。检测项为手指 / 手掌 / 手背、四肢、指甲（美甲、长度、形状）、纹身、疤痕、发色和发长；纹身、疤痕、发色、发长按招聘方的书面录用标准给出建议，性别由招聘方填写，系统不从图像判断。能明确判断的项目由系统直接给出结论，置信度不足的交人工确认；对结论有异议可申请人工复核。</span></label>
       </div>
       <button id="startBtn" disabled>开始检测</button>
-      <p class="muted small">请在光线充足处进行，穿短袖，先站到距镜头约 2–2.5 米处。手部步骤会提示你走近镜头。</p>
+      <p class="muted small">请在光线充足处进行，穿短袖、露出脖子，先站到距镜头约 2–2.5 米处。颈部、手臂和手部步骤会提示你走近镜头。</p>
     </div>
     <ol id="stepList" class="steps"></ol>
     <button id="skipBtn" class="ghost" hidden>跳过当前步骤</button>
@@ -56,6 +70,7 @@
             <option value="nail_polish">美甲</option>
             <option value="tattoo">纹身（含贴纸）</option>
             <option value="scar">疤痕</option>
+            <option value="stain">污渍 / 笔迹</option>
             <option value="dyed_hair">染发</option>
             <option value="attack">防作弊测试</option>
             <option value="hard_light">弱光 / 逆光</option>
@@ -75,8 +90,8 @@
         </fieldset>
         <div class="grid2">
           <label class="field">四肢<select id="v_limbs"><option value="">未标注</option><option value="no">正常</option><option value="yes">有缺失或明显异常</option></select></label>
-          <label class="field">纹身<select id="v_tattoo"><option value="">未标注</option><option value="no">无</option><option value="yes">有</option></select></label>
-          <label class="field">疤痕<select id="v_scar"><option value="">未标注</option><option value="no">无</option><option value="yes">有</option></select></label>
+          <label class="field">纹身（按录用标准）<select id="v_tattoo"><option value="">未标注</option><option value="none">无</option><option value="pass">有，符合标准</option><option value="review">有，需核验</option><option value="block">有，不符合</option></select></label>
+          <label class="field">疤痕（按录用标准）<select id="v_scar"><option value="">未标注</option><option value="none">无</option><option value="pass">有，符合标准</option><option value="review">有，需核验</option><option value="block">有，不符合</option></select></label>
           <label class="field">发色<select id="v_hair"><option value="">未标注</option><option value="natural">自然</option><option value="dyed">染发</option><option value="highlights">挑染</option></select></label>
           <label class="field">本次是否攻击测试<select id="v_attack"><option value="none">真人现场</option><option value="replay">回放录像</option><option value="photo">照片</option><option value="virtual_camera">虚拟摄像头</option><option value="other">其他攻击</option><option value="">未标注</option></select></label>
           <label class="field">光线<select id="v_lighting"><option value="">未标注</option><option value="normal">正常</option><option value="dim">偏暗</option><option value="bright">偏亮</option><option value="backlit">逆光</option></select></label>

@@ -5,9 +5,16 @@ version: 1
 
 capture:
   hold_ms: 1000              # 动作保持多久算到位
-  step_timeout_ms: 25000     # 单步超时
-  challenge_round_ms: 5000   # 随机手势挑战每轮时限
+  step_timeout_ms: 30000     # 单步超时（不含开始前看示意图的时间）
+  challenge_round_ms: 7000   # 随机手势挑战每轮时限
   challenge_rounds: 2
+  # 节奏（实测反馈"还没看清要做什么就一直在催促"）
+  prep_ms: 4000              # 每步开始前：放大显示动作示意图并倒数，这段时间不检测、不催促
+  phase_prep_ms: 2000        # 同一步换下一个动作（如侧平举 → 上举）时的停顿
+  hint_stable_ms: 800        # 同一条提示持续这么久才显示（避免提示来回闪）
+  hint_grace_ms: 4000        # 检测开始后这么久内只显示文字提示，不用语音催
+  hint_interval_ms: 6000     # 两次语音提示的最短间隔；语音没播完不会被新提示打断
+  hint_repeat_ms: 12000      # 同一句提示的最短重复间隔
 
 quality:
   brightness: [60, 215]      # 画面平均亮度（0–255）允许范围
@@ -18,6 +25,9 @@ quality:
 pose:
   min_visibility: 0.55       # 关键点可见度阈值
   limb_symmetry: [0.75, 1.33]  # 左右肢段长度比正常范围
+  foot_min_visibility: 0.4   # 脚跟、脚尖点可见度阈值（鞋子、地面遮挡时略低，建议初值）
+  min_straight_angle: 120    # 站立 / 侧平举 / 上举时肘、膝角度下限（度），低于此值判"弯折"（疑似远端缺失、关键点折回）
+  contour_min: 0.5           # 肢体每段采样点落在人体分割掩码内的比例下限，低于此值判"疑似缺失（关键点脑补）"
 
 fingers:
   # 各手指链长 / 中指链长 的参考比例（MCP→指尖，拇指 CMC→指尖）
@@ -29,23 +39,46 @@ fingers:
   pinch_ratio: 0.32          # 拇指尖与目标指尖距离 / 掌长 < 此值算对捏
 
 contour:
-  tip_on_mask_min: 0.5       # 指尖段采样点落在手部掩码内的比例下限，低于此值判"关键点脑补"
+  tip_on_mask_min: 0.5       # 手指末节、中节采样点落在手部掩码（皮肤）内的比例下限，低于此值判"看不清（遮挡 / 蜷起 / 缺失，关键点脑补）"
+  gap_min_spread: 0.28       # 相邻两指末节中点距离 ≥ 0.28 掌长（已张开）时，两指之间应能看到背景；看不到判"疑似遮挡（关键点脑补）"
+  gap_delta_e: 10            # 背景接近肤色时：两指之间与两侧手指的色差 ≥ 10 也算看到缝隙（真人实测缝隙 15–38，被同色物体挡住约 4）
+  tip_delta_e: 10            # 指尖与指尖外侧背景的色差 ≥ 10 算"看得出边界"；伸直的手指过半看不出边界 → 背景不可靠（网页端）
+  palm_on_mask_min: 0.75     # 掌面内部采样点落在手部掩码内的比例下限，低于此值判"疑似手掌 / 手背残缺"（建议初值，未经实测）
   skin_delta_e: 20           # skin 后端：与手背肤色的 Lab 色差上限
   mask_dilate_px: 3
 
 nails:
-  delta_e: 22                # 指甲与手背肤色 Lab 色差，超过记"疑似美甲"
+  delta_e: 22                # 指甲与同一根手指中节皮肤的 Lab 色差，超过记"疑似美甲"（只测伸直的手指）
+  close_min_seg: 0.03        # 指甲近景：指尖段平均长度至少占画面宽度的比例（约 30 厘米距离），不够时提示靠近
 
 hair:
-  dyed_chroma_min: 18        # 头发像素平均彩度高于此值记"疑似染色"（粗略启发式，只作基线）
-  min_pixels: 400            # 头发像素少于此值视为无法判断
+  policy: configs/policies/hair.yaml   # 发色、发长的颜色范围和判定阈值都在录用标准文件里
+
+# 肢体协调性：分析动作步骤里记录的关键点序列（limbcheck/motion.py）。角度单位度，长度以大腿 / 腿长 / 躯干长 / 肩宽为单位。
+# 均为建议初值，需要用真人样本（含动作不协调、活动受限者）校准。
+motion:
+  min_frames: 8              # 一个动作至少多少帧才分析
+  min_vis: 0.5               # 关键点可见度低于此值的帧不参与计算
+  arms: {t_min_abduction: 70, up_min_abduction: 140, max_asym_deg: 25, min_elbow: 140}   # 侧平举 / 上举外展角下限，左右差上限，肘部伸直下限
+  legs: {min_lift: 0.5, max_asym: 0.35, max_sway: 0.15}       # 抬腿比例（大腿抬平 = 1）、左右差、抬腿时髋部左右晃动（躯干长）
+  squat: {min_depth: 0.25, max_knee_asym_deg: 25, max_shift: 0.15}   # 下蹲深度（腿长）、最低点左右膝角差、身体侧移（躯干长）
+  march: {lift: 0.35, min_count: 6, min_alternation: 0.7, max_cv: 0.45, max_count_diff: 2}   # 高抬腿：抬腿判定、次数、左右交替比例、间隔变异系数、左右次数差
+  cross_touch: {touch_ratio: 0.45, min_count: 4, min_alternation: 0.7, max_cv: 0.8}         # 交叉摸肩：手腕到对侧肩距离 < 0.45 肩宽算摸到；跟着语音提示做，节律放宽
+  confidence: {normal: 0.85, normal_single: 0.7, abnormal: 0.6}   # 结论置信度：≥ 2 个身体动作都正常 / 只有 1 个 / 发现问题
 
 multi_frame: {window: 9, vote: 0.6}   # 建议：9 帧中 ≥60% 一致才采纳（实时链路用，离线评测为单帧）
 
 arbitration:
   strategy: default          # 仲裁策略（limbcheck/arbiter.py；自定义策略见 docs/EXTENDING.md）
   high_conf: 0.8             # 所有来源都认为正常且置信度都 ≥ 此值才自动通过
+  agree_min_conf: 0.7        # 两路都认为正常时：一路 ≥ high_conf、另一路 ≥ 此值也自动通过（关键点法临近阈值时置信度偏低，大模型很确定）；null 表示不放宽
+  auto_fail_conf: 0.85       # 认为有问题且置信度 ≥ 此值 → 直接判"不符合"，低于此值转人工；null 表示一律转人工
+  auto_fail_single_source: false   # 默认策略只有一路模型时是否也直接判（关键点会"脑补"手指，默认要求两路一致）
+  # high_conf、agree_min_conf、auto_fail_conf 随筛选严格度变化，见 configs/strictness.yaml
   low_conf: 0.5              # 两路不一致且一方低于此值时优先重做
   max_redo: 1
   per_check:                 # 按检测项覆盖上面的值
-    scar: {high_conf: 0.9}   # 疤痕大模型误报多，要求更高置信度才自动通过
+    tattoo: {strategy: policy}               # 按录用标准（configs/policies/marks.yaml）逐处判定
+    scar: {strategy: policy, high_conf: 0.9} # 疤痕大模型误报多，要求更高置信度才自动通过
+    hair: {strategy: policy}                 # 按发色、发长标准（configs/policies/hair.yaml）判定
+    nails: {strategy: policy}                # 按指甲标准（configs/policies/nails.yaml）判定：款式、长度、形状
