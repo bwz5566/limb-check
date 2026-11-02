@@ -143,6 +143,8 @@ def test_merge_parsed():
     assert max(i["confidence"] for i in m["items"] if i["label"] == "none") == 0.95
     assert merge_parsed([_p([("all_visible", "none", 0.9)])], missing=True)["image_quality"] == "poor"
     assert merge_parsed([]) is None
+    same = _p([("all_visible", "none", 0.9)], "poor") | {"reason": "看不清"}
+    assert merge_parsed([same, same])["reason"] == "看不清"
 
 
 def test_private_hosts_bypass_proxy():

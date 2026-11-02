@@ -221,4 +221,4 @@ def merge_parsed(parsed: list[dict], missing: bool = False) -> dict | None:
                 items[key] = it
     quality = max((p["image_quality"] for p in parsed), key=_QUALITY_RANK.__getitem__)
     return {"items": list(items.values()), "image_quality": "poor" if missing else quality,
-            "reason": "；".join(p["reason"] for p in parsed if p["reason"])[:200]}
+            "reason": "；".join(dict.fromkeys(p["reason"] for p in parsed if p["reason"]))[:200]}
