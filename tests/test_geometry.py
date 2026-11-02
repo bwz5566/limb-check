@@ -155,3 +155,16 @@ def test_nails_only_measured_on_extended_fingers(thresholds):
         bent.pts[i] = bent.pts[i - 2] + (bent.pts[0] - bent.pts[i - 2]) * 0.3
     assert sum(v is None for v in nails_delta_e(img, bent.pts).values()) >= 4
     assert nails_result(img, [bent], thresholds["nails"], "L1:test").positive is None
+
+
+def test_assign_sides_ignores_confident_model_labels_for_two_hands():
+    """模型把右手手背认成"左手掌心"时（两者关键点排布相同），双手视角按画面位置定左右，掌心 / 手背才判得对。"""
+    from limbcheck.keypoints import Hand, assign_sides
+
+    pts = np.zeros((21, 2))
+    a = Hand(pts=pts + [100, 0], side="left", side_score=0.99)    # 画面左侧 = 受检者右手，模型误标为左手
+    b = Hand(pts=pts + [500, 0], side="right", side_score=0.99)
+    out = assign_sides([b, a], 2)
+    assert [h.side for h in out] == ["right", "left"] and out[0] is a
+    single = Hand(pts=pts, side="left", side_score=0.99)
+    assert assign_sides([single], 1)[0].side == "left"           # 单手视角仍用模型的左右

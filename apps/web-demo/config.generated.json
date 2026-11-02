@@ -163,15 +163,14 @@
     "version": 1,
     "capture": {
       "hold_ms": 1000,
-      "step_timeout_ms": 30000,
+      "step_timeout_ms": 90000,
       "challenge_round_ms": 7000,
       "challenge_rounds": 2,
       "prep_ms": 4000,
       "phase_prep_ms": 2000,
       "hint_stable_ms": 800,
-      "hint_grace_ms": 4000,
-      "hint_interval_ms": 6000,
-      "hint_repeat_ms": 12000
+      "respond_ms": 5000,
+      "max_prompts": 3
     },
     "quality": {
       "brightness": [
@@ -204,7 +203,8 @@
       "middle_to_palm_min": 0.45,
       "extended_angle": 145,
       "thumb_extended_angle": 140,
-      "pinch_ratio": 0.32
+      "pinch_ratio": 0.32,
+      "facing_min_strength": 0.15
     },
     "contour": {
       "tip_on_mask_min": 0.5,

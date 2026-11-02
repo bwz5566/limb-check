@@ -99,13 +99,12 @@ def body_from_array(arr: np.ndarray, scores: np.ndarray, mapping: dict[str, int]
 def assign_sides(hands: list[Hand], expected: int, mirrored: bool = False, min_side_score: float = 0.8) -> list[Hand]:
     """确定左右手（受检者本人的左右）。
 
-    1. 模型给出了左右（MediaPipe handedness、RTMW 全身 133 点）且两只手不同、置信度都够 → 采用；
-    2. 否则双手视角检测到 2 只手时按画面 x 坐标：未镜像画面里受检者的右手在画面左侧（双手交叉时会认错）。
+    掌心 / 手背由"左右手 + 关键点排布的手性"决定（geometry.facing），而 2D 关键点分不出"右手手背"和"左手掌心"
+    （两者互为镜像，关键点排布一样）。模型的 handedness 恰好在这两种情况之间混淆，用它会把正反面判反（真机实测）。
+    所以双手视角检测到 2 只手时按画面位置定：未镜像画面里受检者的右手在画面左侧（双手交叉时会认错，采集时要求双手分开）。
+    单手视角、或只检测到 1 只手时才用模型给的左右（min_side_score 已不再使用，保留参数以兼容旧调用）。
     """
     if expected == 2 and len(hands) == 2:
-        a, b = hands
-        if a.side and b.side and a.side != b.side and min(a.side_score, b.side_score) >= min_side_score:
-            return sorted(hands, key=lambda h: h.side != "right")
         ordered = sorted(hands, key=lambda h: h.wrist_x, reverse=mirrored)
         ordered[0].side, ordered[1].side = "right", "left"
         return ordered
