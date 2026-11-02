@@ -106,8 +106,8 @@ class VLMClient:
             except VLMError as e:
                 if not self.use_schema or "400" not in str(e):
                     raise
+                rv.text = self.chat(messages, None)      # 普通请求也失败时 400 与 Schema 无关，只记这次的错误
                 rv.errors.append("服务端不支持 JSON Schema，已退回普通模式")
-                rv.text = self.chat(messages, None)
         except VLMError as e:
             rv.errors.append(str(e))
         rv.latency_ms = (time.perf_counter() - t0) * 1000

@@ -441,8 +441,9 @@ def policy_result(check: str, items: list[dict], view: str, source: str, quality
     findings, marks, unsure = [], [], False
     for i in items:
         if i["label"] == "none":
-            unsure |= i["uncertain"]
-            findings.append(Finding(check, i["part"] or "all_visible", "none", None if i["uncertain"] else False,
+            unclear = i["uncertain"] or not quality_ok      # 画质差时"没看到"不等于"没有"
+            unsure |= unclear
+            findings.append(Finding(check, i["part"] or "all_visible", "none", None if unclear else False,
                                     i["confidence"], source, None))
             continue
         if i["label"] not in ("tattoo", "scar", "stain"):
@@ -468,7 +469,7 @@ def policy_result(check: str, items: list[dict], view: str, source: str, quality
         return CheckResult(check, source, None, 0.0, sorted({f.part for f in stains}), False, findings,
                            "；".join(f.note for f in stains)[:400])
     if unsure:
-        return CheckResult(check, source, None, 0.0, [], quality_ok, findings, "模型表示无法确定")
+        return CheckResult(check, source, None, 0.0, [], quality_ok, findings, "模型表示无法确定" if quality_ok else "画质不足，无法确认有没有")
     confs = [f.confidence for f in findings]
     note = "；".join(f.note for f in findings if f.note) or reason
     return CheckResult(check, source, False, round(min(confs), 3) if confs else 0.0, [], quality_ok, findings, note)

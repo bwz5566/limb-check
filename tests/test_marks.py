@@ -35,6 +35,16 @@ def verdicts(r):
     return [f.value["verdict"] for f in r.findings if isinstance(f.value, dict) and "verdict" in f.value]
 
 
+def test_none_on_poor_image_is_not_a_clean_result():
+    item = {"check": "tattoo", "part": "all_visible", "label": "none", "confidence": 1.0, "uncertain": False}
+    text = json.dumps({"items": [item], "image_quality": "poor", "reason": "看不到人"}, ensure_ascii=False)
+    parsed, _ = parse_reply(text, ["tattoo"])
+    r = to_check_results(parsed, ["tattoo"], "stand", "L2:test")["tattoo"]
+    assert r.positive is None and r.confidence == 0 and r.quality_ok is False and "画质不足" in r.note
+    assert arbitrate("tattoo", None, r, ARB, "judge", 0).decision == "redo"
+    assert arbitrate("tattoo", None, r, ARB, "judge", 1).decision == "review"
+
+
 def test_region_names():
     assert region_of("left_forearm") == ("forearm", "left")
     assert region_of("right_wrist") == ("forearm", "right")

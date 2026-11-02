@@ -541,7 +541,7 @@ image_quality 为 good、fair 或 poor；reason 不超过 50 字。
 
 设 `VLM_SCHEMA=1`（或命令行 `--vlm-schema`）时，请求里会带上 `response_format: {type: json_schema, ...}`，
 由服务端在生成时强制输出符合格式的 JSON（`prompts.schema`）。服务端不支持时会返回 400，
-客户端记录一条“服务端不支持 JSON Schema，已退回普通模式”并重发普通请求（`vlm.VLMClient.review`）。
+客户端重发普通请求，成功才记录“服务端不支持 JSON Schema，已退回普通模式”；普通请求也失败时说明 400 另有原因，只记录这次的错误（`vlm.VLMClient.review`）。
 
 ### 5.4 解析与护栏（`prompts.parse_reply`）
 
