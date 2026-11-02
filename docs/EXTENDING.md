@@ -326,7 +326,7 @@ side_raise: {
 | `LIMBCHECK_CONFIG_DIR` | 配置目录（默认仓库 `configs/`）。可以给每个客户一份配置，代码不变 |
 | `LIMBCHECK_MODELS_DIR` | 模型文件目录（默认仓库 `models/`），网页和离线共用 |
 | `LIMBCHECK_PROMPT_VERSION` | 临时切换提示词版本 |
-| `VLM_BASE_URL` `VLM_MODEL` `VLM_API_KEY` `VLM_SCHEMA` | 大模型服务 |
+| `VLM_BASE_URL` `VLM_MODEL` `VLM_API_KEY` `VLM_SCHEMA` `VLM_THINKING` `VLM_TIMEOUT` `VLM_MAX_TOKENS` | 大模型服务 |
 
 ---
 
