@@ -13,6 +13,8 @@
   VLM_BASE_URL  OpenAI 兼容接口地址；只设了 VLM_API_KEY 时默认 https://dashscope.aliyuncs.com/compatible-mode/v1
   VLM_MODEL     模型名；默认 qwen3.7-plus（DashScope）
   VLM_SCHEMA    设为 1 时用 JSON Schema 约束输出（vLLM 支持；不支持的服务会自动退回）
+  VLM_THINKING  深度思考：1 = 全部开启；fingers,nails 这样逗号分隔 = 只对这些检测项开启（vLLM 部署的 Qwen3 系列）
+  VLM_TIMEOUT / VLM_MAX_TOKENS  单次请求超时（秒）和输出 token 上限；开启思考时默认 600、8192，否则 90、2048
   LIMBCHECK_PROMPT_VERSION  提示词版本（configs/prompts/<版本>.json），默认见 configs/checks.json
   LIMBCHECK_PIPELINE  服务端判定用的流水线（configs/pipelines/ 下的名字或 yaml 路径）；
                 默认 auto：先试 rtmw-skin-cpu（需 pip install -e ".[rtmw]"，首次运行下载模型），不行再用 mediapipe-skin；
@@ -65,7 +67,7 @@ from limbcheck.summary import set_summary_config, summarize  # noqa: E402
 from limbcheck.motion import analyze as analyze_motion, motion_result  # noqa: E402
 from limbcheck.strictness import arbitration_cfg, default_level, levels, set_config  # noqa: E402
 from limbcheck.prompts import l2_checks_for, prompt_version  # noqa: E402
-from limbcheck.vlm import VLMClient  # noqa: E402
+from limbcheck.vlm import VLMClient, env_options  # noqa: E402
 
 MODELS = Path(os.environ.get("LIMBCHECK_MODELS_DIR") or REPO / "models")
 WEB_CONFIG = json.loads((ROOT / "config.generated.json").read_text(encoding="utf-8"))
@@ -93,7 +95,7 @@ def make_client() -> VLMClient | None:
     model = os.environ.get("VLM_MODEL") or ("qwen3.7-plus" if base else "")
     if not base or not model:
         return None
-    return VLMClient(base, model, key, use_schema=os.environ.get("VLM_SCHEMA") == "1")
+    return VLMClient(base, model, key, **env_options())
 
 
 CLIENT = make_client()

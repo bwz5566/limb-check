@@ -46,8 +46,11 @@ def _pipeline(args, use_vlm: bool = True):
         if v:
             over[k] = v
     if getattr(args, "vlm_base_url", None) and getattr(args, "vlm_model", None):
-        over["vlm"] = {"base_url": args.vlm_base_url, "model": args.vlm_model, "api_key": args.vlm_api_key or "",
-                       "use_schema": bool(args.vlm_schema)}
+        from .vlm import env_options
+
+        opts = env_options()
+        opts["use_schema"] = opts["use_schema"] or bool(args.vlm_schema)
+        over["vlm"] = {"base_url": args.vlm_base_url, "model": args.vlm_model, "api_key": args.vlm_api_key or "", **opts}
     if not use_vlm or getattr(args, "no_vlm", False):
         over["vlm"] = "none"
     if getattr(args, "strictness", None):
@@ -240,10 +243,12 @@ def cmd_bench(args):
 
 
 def _vlm_client(args):
-    from .vlm import VLMClient
+    from .vlm import VLMClient, env_options
 
     if args.vlm_base_url and args.vlm_model:
-        return VLMClient(args.vlm_base_url, args.vlm_model, args.vlm_api_key or "", use_schema=bool(args.vlm_schema))
+        opts = env_options()
+        opts["use_schema"] = opts["use_schema"] or bool(args.vlm_schema)
+        return VLMClient(args.vlm_base_url, args.vlm_model, args.vlm_api_key or "", **opts)
     c = VLMClient.from_env()
     if c is None:
         sys.exit("请用 --vlm-base-url / --vlm-model 或环境变量 VLM_BASE_URL / VLM_MODEL 指定大模型服务")

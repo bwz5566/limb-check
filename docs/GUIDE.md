@@ -540,8 +540,16 @@ image_quality 为 good、fair 或 poor；reason 不超过 50 字。
 ### 5.3 JSON Schema 模式
 
 设 `VLM_SCHEMA=1`（或命令行 `--vlm-schema`）时，请求里会带上 `response_format: {type: json_schema, ...}`，
-由服务端在生成时强制输出符合格式的 JSON（`prompts.schema`）。服务端不支持时会返回 400，
-客户端记录一条“服务端不支持 JSON Schema，已退回普通模式”并重发普通请求（`vlm.VLMClient.review`）。
+由服务端在生成时强制输出符合格式的 JSON（`prompts.schema`）。服务端返回 400 时，客户端去掉 Schema 重发一次：
+重发成功才记录“服务端不支持 JSON Schema，已退回普通模式”；重发也失败（如图片数超过服务端上限）则记录服务端的真实错误（`vlm.VLMClient.review`）。
+
+### 5.3.1 深度思考与输出上限
+
+`VLM_THINKING=1` 时请求里带 `chat_template_kwargs: {"enable_thinking": true}`（vLLM 部署的 Qwen3 系列），模型先推理再给结论；
+写成 `fingers,nails` 这样逗号分隔时只对包含这些检测项的视角开启（流水线 yaml 里的 `vlm: {thinking: [nails]}` 同理）。
+思考内容在单独的 `reasoning` 字段，不影响解析。开启后默认超时 600 秒、`max_tokens` 8192（不开启为 90 秒、2048），
+可用 `VLM_TIMEOUT`、`VLM_MAX_TOKENS` 覆盖。输出被截断（`finish_reason=length`）时记录明确错误，按无法判断处理。
+内网 qwen38-int4 实测（单张图）：手部视角 7.9 秒 → 55.6 秒，指甲近景 3.5 → 6.5 秒，全身 4.9 → 15.3 秒。
 
 ### 5.4 解析与护栏（`prompts.parse_reply`）
 
@@ -1013,6 +1021,7 @@ cli.cmd_eval
 | `LIMBCHECK_MODELS_DIR` | 模型文件目录，默认仓库的 `models/` |
 | `LIMBCHECK_PROMPT_VERSION` | 提示词版本，默认见 `checks.json` 的 `default_prompt_version` |
 | `VLM_BASE_URL` / `VLM_MODEL` / `VLM_API_KEY` / `VLM_SCHEMA` | 大模型地址 / 模型名 / 密钥 / 是否用 JSON Schema |
+| `VLM_THINKING` / `VLM_TIMEOUT` / `VLM_MAX_TOKENS` | 深度思考（1 或检测项列表）/ 单次超时秒数 / 输出 token 上限 |
 | `PORT` / `HOST` | 网页 demo 的端口（默认 8000）和监听地址（默认 127.0.0.1） |
 
 ---
