@@ -12,9 +12,13 @@ groups:
   - {id: liveness, name: 活体 / 防作弊, checks: [liveness], steps: [challenge]}
 
 # 入职前可以整改的检测项：判"不符合"或"疑似问题"时不淘汰，给"有条件通过"并写明整改要求。
-# 例如头发也允许入职前染回：加一行 `hair: 入职前需将头发染回自然色`
+# 写法：`检测项: 整改要求`，或 {text: 整改要求, only: [问题类别]}：只有这些类别的问题可整改，有其他问题时仍按不符合 / 人工确认。
+# 问题类别：按标准判定的用发现的 kind（发色 hair_color、发长 hair_length），大模型的用标签（整体染色 dyed、挑染 highlights）。
 fixable:
   nails: 入职前需卸除美甲、修剪指甲
+  hair:                                    # 招聘方 2026-11：头发染回自然色也算；男生发长不符合不算可整改
+    text: 入职前需将头发染回自然色
+    only: [hair_color, dyed, highlights]
 
 # 总结论（按顺序判断，第一个满足的生效）：
 #   fail：有不可整改的项目明确不符合（保留申诉和线下复核渠道）

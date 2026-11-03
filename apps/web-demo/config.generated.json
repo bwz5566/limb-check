@@ -961,13 +961,22 @@
           "shoulder": "及肩",
           "long": "过肩"
         },
-        "rules": {
-          "male": {
+        "standards": {
+          "shoulder": {
             "max_ratio": 0.95,
             "action": "block",
             "borderline": 0.1,
             "text": "男生长发（发尾及肩或更长）"
+          },
+          "collar": {
+            "max_ratio": 0.8,
+            "action": "block",
+            "borderline": 0.08,
+            "text": "男生头发后面过领"
           }
+        },
+        "rules": {
+          "male": "shoulder"
         }
       }
     },
@@ -1229,7 +1238,15 @@
       }
     ],
     "fixable": {
-      "nails": "入职前需卸除美甲、修剪指甲"
+      "nails": "入职前需卸除美甲、修剪指甲",
+      "hair": {
+        "text": "入职前需将头发染回自然色",
+        "only": [
+          "hair_color",
+          "dyed",
+          "highlights"
+        ]
+      }
     },
     "outcomes": {
       "fail": {

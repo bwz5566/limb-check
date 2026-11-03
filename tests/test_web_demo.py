@@ -277,3 +277,12 @@ def test_nails_close_view_decides(server):
     assert e["views"]["backs"] != "pass" and e["decision"] == "pass" and e["primary_view"] == "nails_close"
     e = server.arbitrate_session("precision", frames[:1], checks=["nails"])["by_check"]["nails"]
     assert e["decision"] != "pass"
+
+
+def test_session_records_problem_kinds(server):
+    """会话级记下每项问题的类别，综合判断据此区分可整改的发色和不可整改的发长。"""
+    dyed = CheckResult("hair", "L2:x", True, 0.9, ["head"], findings=[
+        Finding("hair", "head", "dyed", True, 0.9, "L2:x", "红色")]).to_dict()
+    out = server.arbitrate_session("precision", [{"view": "head_front", "l2": {"hair": dyed}}], checks=["hair"], steps=[])
+    assert out["by_check"]["hair"]["problems"] == ["dyed"]
+    assert out["summary"]["outcome"] == "conditional" and out["summary"]["conditions"][0]["check"] == "hair"

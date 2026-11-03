@@ -148,6 +148,17 @@ def test_length_male_rules():
     assert finding(near, "hair_length").value["verdict"] == REVIEW
 
 
+def test_length_collar_standard_per_job():
+    """岗位参数 male_length: collar 换用"后不过领"：及领的头发不录用，同一头发按默认"及肩"标准只是接近阈值。"""
+    def v(hb, params=None):
+        img, cat, body = scene(hair_bottom=hb)
+        return finding(hair_result(img, FakeSeg(cat), body, {"gender": "male"}, params=params), "hair_length").value["verdict"]
+    collar = {"male_length": "collar"}
+    assert v(230) == REVIEW and v(230, collar) == "block"
+    assert v(220) == PASS and v(220, collar) == REVIEW
+    assert v(200, collar) == PASS
+
+
 def test_length_only_recorded_without_gender():
     for g in (None, "female"):
         r = run(g, hair_bottom=330)
