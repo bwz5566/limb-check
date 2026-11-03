@@ -46,7 +46,7 @@ const draw = new DrawingUtils(ctx);
 const grab = document.createElement('canvas'), gctx = grab.getContext('2d', { willReadFrequently: true });
 
 let poseLm, handLm, delegate = 'GPU', W = 1280, H = 720;
-const S = { running: false, stepIdx: -1, steps: [], results: [], frames: [], reviews: [], analyses: [], pose: null, body: null, poseCount: 0, hands: [], brightness: 128, frame: 0, baseline: null, job: null, t0: 0, perf: { pose: [], hand: [], frames: 0 }, lastSpoken: { text: '', at: 0 } };
+const S = { running: false, stepIdx: -1, steps: [], results: [], frames: [], reviews: [], analyses: [], pose: null, body: null, poseCount: 0, hands: [], brightness: 128, frame: 0, baseline: null, job: null, t0: 0, perf: { pose: [], hand: [], frames: 0 }, facingHist: {}, speech: { endAt: 0, ended: true } };
 
 // ---------- 工具 ----------
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -88,25 +88,54 @@ function fingerExtended(lm, f) {
 }
 const extendedCount = lm => FINGERS.filter(f => fingerExtended(lm, f)).length;
 const orientSign = lm => Math.sign((lm[5].x - lm[0].x) * (lm[17].y - lm[0].y) - (lm[5].y - lm[0].y) * (lm[17].x - lm[0].x));
-// 未镜像画面、y 向下：右手手背朝前 orientSign = +1，左手相反（与 limbcheck.geometry.facing 一致）
-function facing(h) {
+// 未镜像画面、y 向下：右手手背朝前 orientSign = +1，左手相反（与 limbcheck.geometry.facing 一致）。
+// 2D 关键点本身分不出"右手手背"和"左手掌心"（两者轮廓互为镜像，关键点排布一样），正反面完全取决于左右手判得对不对；
+// 所以左右手不用模型的 handedness（它恰好在这两种情况之间混淆，实测"手掌正反面区分不清"），而按位置定（见 assignSides）。
+// 手侧对镜头时（掌面法向几乎平行于画面）叉积接近 0，正反面不可判，返回 null，提示把手掌正对镜头
+const orientStrength = lm => { const a = { x: lm[5].x - lm[0].x, y: lm[5].y - lm[0].y }, b = { x: lm[17].x - lm[0].x, y: lm[17].y - lm[0].y }; return Math.abs(a.x * b.y - a.y * b.x) / (Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y) + 1e-6); };
+function rawFacing(h) {
   if (h.side !== 'right' && h.side !== 'left') return null;
+  if (orientStrength(h.lm) < (TH.fingers?.facing_min_strength ?? 0.15)) return null;
   const s = orientSign(h.lm) * (h.side === 'right' ? 1 : -1);
   return s > 0 ? 'back' : s < 0 ? 'palm' : null;
 }
-// 左右手：模型给出的左右可信（两只手不同且置信度够）就用，否则按画面 x 坐标（受检者右手在未镜像画面左侧）
-function assignSides(hands, expected = 2, minScore = 0.8) {
-  if (expected === 2 && hands.length === 2) {
-    const [a, b] = hands;
-    if (a.side && b.side && a.side !== b.side && Math.min(a.sideScore, b.sideScore) >= minScore) {
-      a.sideBy = b.sideBy = 'model';
-      return [...hands].sort((x, y) => (x.side === 'right' ? -1 : 1) - (y.side === 'right' ? -1 : 1));
-    }
-    const o = [...hands].sort((x, y) => x.lm[0].x - y.lm[0].x);
+// 最近几帧多数票：翻手过程中、关键点抖动时不来回跳
+const FACING_WIN = 5;
+function facing(h) {
+  if (h.facing !== undefined) return h.facing;
+  const f = rawFacing(h), key = h.side || '?';
+  const hist = (S.facingHist[key] ||= []);
+  hist.push(f); if (hist.length > FACING_WIN) hist.shift();
+  const n = v => hist.filter(x => x === v).length;
+  h.facing = n('palm') > hist.length / 2 ? 'palm' : n('back') > hist.length / 2 ? 'back' : null;
+  return h.facing;
+}
+const facingHint = (h, want) => { const name = SIDE_CN[h.side] || '手'; return rawFacing(h) === null ? `${name}请把${want === 'palm' ? '掌心' : '手背'}正对镜头，不要侧着` : want === 'palm' ? `${name}请掌心朝向镜头` : `${name}请翻转为手背朝前`; };
+// 左右手（受检者本人的左右）按位置定，不用模型给的 handedness（理由见上）：
+// 1. 有人体姿态（身体 + 手部的步骤）：离哪侧手腕近就是哪只手（双臂交叉也不会认错）；
+// 2. 两只手：未镜像画面里受检者的右手在画面左侧；
+// 3. 一只手：明显在脸（或画面中线）左侧的是右手；
+// 4. 都没有时才用模型给的左右。
+function assignSides(hands, expected = 2) {
+  const center = h => ({ x: (h.lm[0].x + h.lm[5].x + h.lm[17].x) / 3, y: (h.lm[0].y + h.lm[5].y + h.lm[17].y) / 3 });
+  const b = S.body;
+  if (b && has(b, 'left_wrist', 0.3) && has(b, 'right_wrist', 0.3)) {
+    const d = (h, s) => dist(h.lm[0], b.joints[`${s}_wrist`]);
+    if (hands.length === 2) {
+      const [x, y] = hands, keep = d(x, 'right') + d(y, 'left') <= d(x, 'left') + d(y, 'right');
+      x.side = keep ? 'right' : 'left'; y.side = keep ? 'left' : 'right';
+    } else for (const h of hands) h.side = d(h, 'right') <= d(h, 'left') ? 'right' : 'left';
+    hands.forEach(h => { h.sideBy = 'pose'; });
+  } else if (expected === 2 && hands.length === 2) {
+    const o = [...hands].sort((x, y) => center(x).x - center(y).x);
     o[0].side = 'right'; o[1].side = 'left'; o[0].sideBy = o[1].sideBy = 'x-order';
-    return o;
-  }
-  return hands;
+  } else if (hands.length === 1) {
+    // 手明显偏在脸（没找到脸时用画面中线）一侧才按位置定；手在正中间时位置说明不了什么，用模型的左右
+    const h = hands[0], mid = S.face ? (S.face.x0 + S.face.x1) / 2 : W / 2, off = center(h).x - mid;
+    const margin = S.face ? 0.25 * (S.face.x1 - S.face.x0) : 0.08 * W;
+    if (Math.abs(off) > margin) { h.side = off < 0 ? 'right' : 'left'; h.sideBy = S.face ? 'face' : 'frame-center'; } else h.sideBy = 'model';
+  } else hands.forEach(h => { h.sideBy = 'model'; });
+  return [...hands].sort((x, y) => (x.side === 'right' ? -1 : 1) - (y.side === 'right' ? -1 : 1));
 }
 
 function analyzeFingers(lm) {
@@ -539,16 +568,30 @@ function requestReview(view, images, meta) {
 }
 
 // ---------- 语音 ----------
+// 每句话都按"播报时长"计时：等待时间 = 播完这句的时间 + 留给受检者照做的时间（capture.respond_ms）。
+// 播报时长先按字数估算（约 4.5 字 / 秒），浏览器报告播完（onend）时以实际为准；关掉语音时同样按估算时长等（看文字的时间）
+const speechEstMs = text => 600 + 220 * [...text].length;
+const voiceOn = () => $('#voice').checked && 'speechSynthesis' in window;
 function say(text, force = false) {
-  if (!$('#voice').checked || !('speechSynthesis' in window) || !text) return;
+  if (!text) return 0;
   const now = performance.now();
-  if (!force && (speechSynthesis.speaking || speechSynthesis.pending)) return;     // 不打断正在播的说明
-  if (!force && text === S.lastSpoken.text && now - S.lastSpoken.at < PACE.hint_repeat_ms) return;
-  if (!force && now - S.lastSpoken.at < PACE.hint_interval_ms) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 1.05;
-  speechSynthesis.speak(u);
-  S.lastSpoken = { text, at: now };
+  if (!force && speechEnd(now) > now) return 0;     // 不打断正在播的说明
+  const sp = { text, at: now, endAt: now + speechEstMs(text), ended: false };
+  S.speech = sp;
+  if (voiceOn()) {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.rate = 1.05;
+    u.onend = u.onerror = () => { if (S.speech === sp) { sp.endAt = performance.now(); sp.ended = true; } };
+    speechSynthesis.speak(u);
+  }
+  return sp.endAt - now;
+}
+// 当前这句话预计什么时候播完（浏览器还在念就继续等，最多比估算多等 15 秒，防止 onend 丢失卡住）
+function speechEnd(now) {
+  const sp = S.speech;
+  if (sp.ended) return sp.endAt;
+  if (voiceOn() && speechSynthesis.speaking && now < sp.endAt + 15000) return Math.max(sp.endAt, now + 200);
+  return sp.endAt;
 }
 
 // ---------- 步骤库：岗位配置里的 steps 按 id 取用；新增步骤在这里加一项，再写进 configs/job_profiles/*.yaml ----------
@@ -593,7 +636,7 @@ function handPose(want) {
       for (const h of S.hands) {
         const ev = handEvidence(h), c = seenExtendedCount(h, ev), name = SIDE_CN[h.side] || '手';
         st.metrics[`${name}伸直手指`] = c;
-        if (facing(h) !== want) return { hint: want === 'palm' ? `${name}请掌心朝向镜头` : `${name}请翻转为手背朝前` };
+        if (facing(h) !== want) return { hint: facingHint(h, want) };
         const strict = now - st.start < 6000;
         if (c < needOpen(st, now)) return { hint: `${name}请把五指完全伸直张开` };      // 手指蜷着永远不算完成（超时后照常采集并交人工）
         if (ev && !ev.reliable) { if (strict) return { hint: bgHint(h) }; soft = '手指和背景颜色太接近，结果将交人工复核'; continue; }
@@ -782,16 +825,18 @@ const STEP_LIB = {
     onTimeout(st) { if (S.body) { captureView(st, 'neck', st.firstImg ? [st.firstImg] : []); return 'review'; } return 'timeout'; },
   },
   // 指甲近景：双手手背朝镜头、四指并拢指尖朝上，靠近镜头（甲油、甲片、长度、形状）。款式、长度、形状由大模型或人工判断，
-  // 浏览器和服务端的色差法只能看出有颜色的甲油（configs/policies/nails.yaml）
+  // 浏览器和服务端的色差法只能看出有颜色的甲油（configs/policies/nails.yaml）。
+  // 太近（约 30 厘米）时手腕出画，手部模型找不到手掌就检测不到手，一直拍不到：改为约 40 厘米、手腕留在画面里；
+  // 无论如何都要留一张近景图（没检测到手也截整幅画面），交大模型或人工看指甲
   nails: {
     title: '指甲近景', needs: ['hands'], scope: 'nails',
-    text: () => '请把双手举到镜头前约 30 厘米，手背朝向镜头，四指并拢、指尖朝上，让指甲看清楚',
+    text: () => '请把双手举到镜头前约 40 厘米，手背朝向镜头，四指并拢、指尖朝上，手腕也留在画面里，让指甲看清楚',
     check(st) {
-      if (S.hands.length < 2) return { hint: '请把双手都举到镜头前，手背朝向镜头' };
+      if (S.hands.length < 2) return { hint: S.hands.length ? '请把另一只手也举到镜头前，两只手并排，手腕留在画面里' : '请把双手举到镜头前约 40 厘米，手背朝向镜头，手腕留在画面里' };
       if (handOverlap(S.hands)) return { hint: '请把两只手并排放，不要互相遮挡' };
       for (const h of S.hands) {
         const name = SIDE_CN[h.side] || '手';
-        if (facing(h) !== 'back') return { hint: `${name}请手背朝向镜头` };
+        if (facing(h) !== 'back') return { hint: facingHint(h, 'back') };
         if (['index', 'middle', 'ring', 'little'].filter(f => fingerExtended(h.lm, f)).length < 3) return { hint: `${name}请把手指伸直，指尖朝上` };
       }
       const tips = S.hands.flatMap(h => [8, 12, 16, 20].map(i => h.lm[i]));
@@ -803,7 +848,7 @@ const STEP_LIB = {
       return { ok: true };
     },
     onHold(st) { captureView(st, 'nails_close'); return { done: true }; },
-    onTimeout: captureOnTimeout('nails_close', 'hands'),
+    onTimeout(st) { captureView(st, 'nails_close'); return 'review'; },
   },
   // 头发近景：正面（发色、发尾位置）→ 背面（扎起的长发、后脑挑染），坐着也能做。判定在服务端（configs/policies/hair.yaml）
   hair: {
@@ -867,7 +912,7 @@ const STEP_LIB = {
       }
       const want = st.phase ? 'palm' : 'back';
       if (S.hands.length < 2) return { hint: '请让双手也出现在画面中' };
-      for (const h of S.hands) if (facing(h) !== want) return { hint: `${SIDE_CN[h.side] || '手'}请${want === 'back' ? '手背' : '掌心'}朝向镜头` };
+      for (const h of S.hands) if (facing(h) !== want) return { hint: facingHint(h, want) };
       return { ok: true };
     },
     onHold(st) {
@@ -911,7 +956,7 @@ const STEP_LIB = {
       const h = S.hands.find(x => x.side === side);
       if (!h) return { hint: `请把${name}举到胸前，掌心朝向镜头` };
       if (palmLen(h.lm) < TH.quality.min_hand_size * H) return { hint: '请再靠近镜头一些' };
-      if (facing(h) !== 'palm') return { hint: `${name}请掌心朝向镜头` };
+      if (facing(h) !== 'palm') return { hint: facingHint(h, 'palm') };
       // 碰完一根要先松开（拇指离开上一根手指），否则相邻指尖离得近，一次接触会被连续算成好几根
       if (st.lastTarget) {
         const away = dist(h.lm[4], h.lm[FINGER_IDS[st.lastTarget][3]]) / palmLen(h.lm);
@@ -938,7 +983,7 @@ const STEP_LIB = {
   },
   // 随机挑战：防回放录像。轮数、每轮时限来自 thresholds.yaml 的 capture 段
   challenge: {
-    title: '随机手势挑战', needs: ['hands'], hold: 600,
+    title: '随机手势挑战', needs: ['hands'], hold: 600, prompts: false,   // 每轮有自己的时限（防回放），不走播报计次
     init(st) { st.nums = [1, 2, 3, 4].sort(() => Math.random() - 0.5).slice(0, Math.min(4, TH.capture.challenge_rounds ?? 2)); st.failed = 0; },
     timeout: st => st.nums.length * ROUND_MS + 3000,
     text: st => `任意一只手，掌心朝向镜头，伸出 ${st.nums[st.phase]} 根手指`,
@@ -1142,10 +1187,15 @@ function loop() {
 }
 
 // 每步开始前（及同一步换动作时）停顿：放大示意图、倒数，不检测、不催促；超时从停顿结束后算
+// 停顿至少到这一步（这个动作）的语音说明播完；停顿结束后再给 respond_ms 照做，之后才开始播纠正提示，播报次数清零
 function pauseStep(st, now, ms, first = false) {
+  ms = Math.max(ms, speechEnd(now) - now);
   st.readyAt = now + ms;
   st.start = first ? now + ms : st.start + ms;
+  st.prompts = 0; st.nextPromptAt = st.readyAt + PACE.respond_ms;
 }
+// 动作有进展（换动作、计数增加、对捏多碰了一根）时播报次数清零：卡住的是同一处才算"播报三次仍未改正"
+const progressSig = st => `${st.phase}|${st.n ?? ''}|${st.prog ? `${st.prog.right},${st.prog.left}` : ''}`;
 
 function showGuide(step, st, now) {
   const el = $('#guide'), g = guideFor(step.id, st), prep = st.readyAt && now < st.readyAt;
@@ -1160,7 +1210,7 @@ function showGuide(step, st, now) {
   el.querySelector('.g-count').textContent = prep ? (st.phasePause ? '准备…' : `看清动作，${Math.ceil((st.readyAt - now) / 1000)} 秒后开始`) : '';
 }
 
-// 提示防抖：同一条提示持续 hint_stable_ms 才显示；检测开始 hint_grace_ms 内只显示文字不念；记录每条提示累计出现的时长（成功 / 失败记录里看卡在哪）
+// 提示防抖：同一条提示持续 hint_stable_ms 才显示（语音播报由 promptStep 按播报时长安排）；记录每条提示累计出现的时长（成功 / 失败记录里看卡在哪）
 function showHint(st, hint, now, speak) {
   hint = hint || '';
   if (hint !== st.hintCand) { st.hintCand = hint; st.hintSince = now; }
@@ -1169,7 +1219,22 @@ function showHint(st, hint, now, speak) {
   if (!hint) { $('#hint').textContent = ''; return; }
   if (now - st.hintSince < PACE.hint_stable_ms) return;
   $('#hint').textContent = hint;
-  if (speak && now - (st.readyAt ?? st.start) >= PACE.hint_grace_ms) say(hint);
+}
+
+// 纠正提示：上一句播完、又过了 respond_ms 还没做到位，就播当前提示（没有具体提示时重播动作说明）；
+// 播报 max_prompts 次后仍未改正，这一步按"检测异常，待人工审核"结束（能采集的照常采集证据图），进入下一步
+function promptStep(step, st, res, now) {
+  if (step.prompts === false || res.ok || now < st.nextPromptAt || speechEnd(now) > now) return false;
+  const hint = res.hint || step.text(st);
+  if (st.prompts >= PACE.max_prompts) {
+    const status = step.onTimeout ? step.onTimeout(st) : 'timeout';
+    finish(step, status === 'timeout' ? 'timeout' : 'review', `播报 ${st.prompts} 次提示仍未改正（最后提示：${hint}），检测异常，待人工审核`, true);
+    return true;
+  }
+  say(hint, true);
+  st.prompts++; st.promptLog = [...(st.promptLog || []), hint];
+  st.nextPromptAt = speechEnd(now) + PACE.respond_ms;
+  return false;
 }
 
 function runStep(step, now) {
@@ -1195,18 +1260,21 @@ function runStep(step, now) {
   } else { st.holdStart = null; setHold(0); }
   if (res.ok) st.firstOkMs ??= Math.round(now - st.start);
   showHint(st, res.hint, now, !res.ok);
+  const sig = progressSig(st);
+  if (sig !== st.progSig) { if (st.progSig !== undefined) { st.prompts = 0; st.nextPromptAt = Math.max(st.nextPromptAt, speechEnd(now) + PACE.respond_ms); } st.progSig = sig; }
+  if (promptStep(step, st, res, now)) return;
   $('#metrics').textContent = Object.entries(st.metrics).map(([k, v]) => `${k}: ${v}`).join('\n');
   const limit = step.timeout ? step.timeout(st) : STEP_TIMEOUT_MS * (step.timeoutFactor || 1);
   if (now - st.start > limit) {
     const status = step.onTimeout ? step.onTimeout(st) : 'timeout';
-    finish(step, status, res.hint ? `超时，最后提示：${res.hint}` : '超时');
+    finish(step, status, res.hint ? `超时，最后提示：${res.hint}` : '超时', step.prompts !== false);
   }
 }
 
-function finish(step, status, note) {
+function finish(step, status, note, abnormal = false) {
   const st = step.state;
   const hints = Object.entries(st.hintLog || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([text, ms]) => ({ text, ms: Math.round(ms) }));
-  S.results.push({ id: step.id, title: step.title, status, note: note || '', ms: Math.max(0, Math.round(performance.now() - st.start)), first_ok_ms: st.firstOkMs ?? null, hints, metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails, seq: st.seq });
+  S.results.push({ id: step.id, title: step.title, status, note: note || '', abnormal, prompts: st.promptLog || [], ms: Math.max(0, Math.round(performance.now() - st.start)), first_ok_ms: st.firstOkMs ?? null, hints, metrics: { ...st.metrics }, flags: st.flags || [], evidence: st.evidence, views: st.views || [], hands: st.hands, nails: st.nails, seq: st.seq });
   document.querySelectorAll('#stepList li')[S.stepIdx].className = status;
   nextStep();
 }
@@ -1220,7 +1288,8 @@ function nextStep() {
   step.init?.(step.state);
   document.querySelectorAll('#stepList li').forEach((li, i) => li.classList.toggle('active', i === S.stepIdx));
   const prev = S.steps[S.stepIdx - 1];
-  const moveHint = prev && prev.needs.includes('pose') && !step.needs.includes('pose') ? '身体部分完成。' : '';
+  const last = S.results[S.results.length - 1];
+  const moveHint = (last?.abnormal ? `${last.title}检测异常，待人工审核。下一步，` : '') + (prev && prev.needs.includes('pose') && !step.needs.includes('pose') ? '身体部分完成。' : '');
   $('#banner').textContent = `${S.stepIdx + 1}/${S.steps.length} ${step.text(step.state)}`;
   say(moveHint + step.text(step.state), true);
 }
@@ -1230,7 +1299,8 @@ async function endRun() {
   S.durationMs = Math.round(performance.now() - S.t0);
   $('#banner').textContent = '检测完成，正在等待服务端判定、大模型复核与仲裁…';
   $('#skipBtn').hidden = true;
-  say('检测完成，谢谢配合', true);
+  const abn = S.results.filter(r => r.abnormal).length;
+  say(abn ? `检测完成。有 ${abn} 个步骤检测异常，待人工审核。谢谢配合` : '检测完成，谢谢配合', true);
   video.srcObject?.getTracks().forEach(t => t.stop());
   const [reviews, analyses] = await Promise.all([Promise.all(S.reviews), Promise.all(S.analyses)]);
   for (const fr of S.frames) {
@@ -1309,6 +1379,7 @@ window.limbcheckDemo = {
     W = im.naturalWidth; H = im.naturalHeight; grab.width = W; grab.height = H; gctx.drawImage(im, 0, 0);
     const ts = (S.testTs = Math.max((S.testTs || 0) + 100, performance.now()));
     readFace(ts);
+    S.facingHist = {}; S.body = null;   // 单张图：不用前面帧的投票
     readHands(handLm.detectForVideo(grab, ts));
     const exp = VIEWS[view]?.expected_hands || 2;
     return { hands: S.hands.map(h => ({ side: h.side, facing: facing(h), extended: extendedCount(h.lm), on_face: handOnFace(h), evidence: handEvidence(h) })), face: S.face, keypoints: fingersResult(S.hands, exp), evidence: fingersEvidenceResult(S.hands, exp, ['palms', 'backs'].includes(view)) };
@@ -1584,10 +1655,10 @@ async function loadConfig() {
   }
   TH = WEB.thresholds; CHECKS = WEB.checks; VIEWS = WEB.views; JOBS = Object.fromEntries(WEB.jobs.map(j => [j.id, j]));
   HOLD_MS = FAST ? 500 : TH.capture.hold_ms;
-  STEP_TIMEOUT_MS = FAST ? 7000 : TH.capture.step_timeout_ms;
+  STEP_TIMEOUT_MS = FAST ? 30000 : TH.capture.step_timeout_ms;
   ROUND_MS = FAST ? 2500 : TH.capture.challenge_round_ms;
   const c = TH.capture, d = (k, v) => (FAST ? 0 : c[k] ?? v);
-  PACE = { prep_ms: d('prep_ms', 4000), phase_prep_ms: d('phase_prep_ms', 2000), hint_stable_ms: d('hint_stable_ms', 800), hint_grace_ms: d('hint_grace_ms', 4000), hint_interval_ms: c.hint_interval_ms ?? 6000, hint_repeat_ms: c.hint_repeat_ms ?? 12000 };
+  PACE = { prep_ms: d('prep_ms', 4000), phase_prep_ms: d('phase_prep_ms', 2000), hint_stable_ms: d('hint_stable_ms', 800), respond_ms: FAST ? 1500 : c.respond_ms ?? 5000, max_prompts: c.max_prompts ?? 3 };
 }
 
 function showStrictness() {

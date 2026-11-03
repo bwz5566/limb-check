@@ -836,10 +836,12 @@ loop()（每一帧，requestAnimationFrame）
 | `check(st, now)` | 每帧调用，返回 `{hint}`（未到位，给提示）、`{ok: true}`（到位）或 `{done: true, status, note}`（直接结束） |
 | `hold` | 到位后需保持的毫秒数，默认 `capture.hold_ms`（1000） |
 | `onHold(st, now)` | 保持够时间后调用：采集截图，或进入下一阶段（`{done: false}`），或结束（`{done: true}`） |
-| `timeout(st)` / `timeoutFactor` | 自定义超时 / 默认超时（25 秒）的倍数 |
-| `onTimeout(st)` | 超时时调用。有画面就按当前画面采集并返回 `review`，否则 `timeout` |
+| `timeout(st)` / `timeoutFactor` | 自定义兜底超时 / 默认兜底超时（`capture.step_timeout_ms`，90 秒）的倍数 |
+| `onTimeout(st)` | 纠正提示播报 3 次仍未改正、或兜底超时时调用。有画面就按当前画面采集并返回 `review`，否则 `timeout` |
+| `prompts: false` | 不走"播报三次仍未改正"规则（随机挑战每轮有自己的时限） |
 
-`runStep` 的逻辑：`check` 返回到位就开始计时，不到位就清零；计时满 `hold` 调 `onHold`；整步超过时限调 `onTimeout`。
+`runStep` 的逻辑：语音说明播完才开始检测；`check` 返回到位就开始计时，不到位就清零；计时满 `hold` 调 `onHold`。
+不到位时，上一句播完再过 `capture.respond_ms`（5 秒）播当前提示；播报 `capture.max_prompts`（3）次仍未改正，调 `onTimeout` 并以"检测异常，待人工审核"结束这一步（动作有进展时次数清零）；整步超过兜底时限同样处理。
 步骤结果有三种：`pass`（完成）、`review`（需人工复核）、`timeout`（未完成）。
 
 语音提示做了去重：同一句话 6 秒内不重复，任意两句之间至少隔 3.5 秒（强制播报的除外）。
