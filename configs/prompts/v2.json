@@ -15,19 +15,40 @@
     "arms_in": "受检者双臂向前平伸、掌心和小臂内侧朝向镜头的半身近景",
     "head_front": "受检者头部和双肩的正面近景",
     "head_back": "受检者头部和双肩的背面近景（背对镜头）",
-    "nails_close": "受检者双手手背朝向镜头、四指并拢指尖朝上的指甲近景"
+    "nails_close": "受检者双手手背朝向镜头、四指并拢指尖朝上的指甲近景",
+    "face": "受检者面部的正面近景（摘下口罩、帽子）；面部的纹身、疤痕 part 用 face",
+    "hand_back_right": "受检者右手手背朝向镜头、掌心朝下自然平放的近景，画面里只有右手；手背上的 part 用 right_hand_back，手指上的用 right_finger 并在 fingers 写明哪根，手腕处用 right_forearm",
+    "hand_back_left": "受检者左手手背朝向镜头、掌心朝下自然平放的近景，画面里只有左手；手背上的 part 用 left_hand_back，手指上的用 left_finger 并在 fingers 写明哪根，手腕处用 left_forearm",
+    "forearm_right": "受检者右手小臂的近景（掌心和小臂内侧朝向镜头，或手背和小臂外侧朝向镜头）；小臂（含手腕）上的 part 用 right_forearm，拍到的手背、手掌、手指、大臂按实际部位填写",
+    "forearm_left": "受检者左手小臂的近景（掌心和小臂内侧朝向镜头，或手背和小臂外侧朝向镜头）；小臂（含手腕）上的 part 用 left_forearm，拍到的手背、手掌、手指、大臂按实际部位填写",
+    "upper_arm_right": "受检者右侧大臂（上臂，肩膀到手肘）的近景，衣袖拉到大臂以上（手臂自然下垂、大臂外侧朝向镜头，或手臂向侧面抬起、大臂内侧朝向镜头）；大臂上的 part 用 right_upper_arm，拍到的小臂按 right_forearm 填写",
+    "upper_arm_left": "受检者左侧大臂（上臂，肩膀到手肘）的近景，衣袖拉到大臂以上（手臂自然下垂、大臂外侧朝向镜头，或手臂向侧面抬起、大臂内侧朝向镜头）；大臂上的 part 用 left_upper_arm，拍到的小臂按 left_forearm 填写"
   },
   "checks": {
     "fingers": {
-      "rule": "fingers：对画面中每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 为 \"normal\"（五指完整，手掌、手背无残缺或畸形）、\"missing_or_short\"（有手指缺失或明显短缩）、\"deformed\"（手指、手掌或手背有明显畸形、残缺、弯曲变形、并指或多指、严重挛缩，在 value 中写明部位）或 \"not_visible\"（这只手看不清或不在画面中）；fingers 列出缺失、短缩或畸形的手指（thumb/index/middle/ring/little），没有则为 []；label 为 normal 或 missing_or_short 时 value 为这只手可见的手指数量。图上如有关键点连线只作参考，它可能把缺失的手指“补”出来，请以真实的皮肤轮廓为准。",
+      "rule": "fingers：对画面中每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 从下面选 1 个（一只手有多种问题时选最主要的一个，其余写进 attrs.also）：\"normal\"（五指齐全、各自分开、形态正常，手掌、手背无残缺或畸形）；\"amputated\"（断指：手指整根或部分截断，可见圆钝残端、截断疤痕或指甲缺失）；\"missing\"（缺指：手指数量少于 5 根，看不到截断残端，像先天缺指）；\"missing_or_short\"（手指明显短缩，或拿不准是断指还是缺指）；\"extra\"（多指：手指多于 5 根，多出的手指完整、有指甲）；\"extra_deformed\"（多指畸形：拇指或小指旁有赘生的小指、分叉指、重复指，或切除多指后留下的残迹）；\"syndactyly\"（并指：相邻手指的皮肤或骨头连在一起、指蹼明显过高，五指张开时分不开）；\"deformed\"（其他明显畸形或残缺：手指弯曲变形、严重挛缩、手掌或手背残缺，在 attrs.desc 中写明）；\"not_visible\"（这只手看不清或不在画面中）。fingers 列出有问题的手指（thumb/index/middle/ring/little；多指写多出的手指挨着的那根，并指写连在一起的每根），没有则为 []；value 为这只手可见的手指数量（多指时大于 5）。手指没有张开、互相遮挡时不要判并指，label 用 not_visible 并在 reason 说明。图上如有关键点连线只作参考，它总是画 5 根手指，可能把缺失的手指“补”出来、也画不出多出的手指，请以真实的皮肤轮廓为准。",
       "positive": [
+        "amputated",
+        "missing",
         "missing_or_short",
+        "extra",
+        "extra_deformed",
+        "syndactyly",
         "deformed"
       ],
       "negative": [
         "normal"
       ],
-      "per_hand": true
+      "per_hand": true,
+      "labels_cn": {
+        "amputated": "断指",
+        "missing": "缺指",
+        "missing_or_short": "手指缺失或短缩",
+        "extra": "多指",
+        "extra_deformed": "多指畸形",
+        "syndactyly": "并指",
+        "deformed": "手部畸形或残缺"
+      }
     },
     "nails": {
       "rule": "nails：对每只手各输出 1 条，part 为 \"right_hand\" 或 \"left_hand\"；label 为 \"none\"（自然指甲）、\"polish\"（甲油，含透明亮油）、\"tips\"（甲片或贴片）或 \"extension\"（延长甲）。",

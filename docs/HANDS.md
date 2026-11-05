@@ -6,13 +6,16 @@
 
 | 步骤 | 视角 | 看什么 | 尺寸怎么量 |
 | --- | --- | --- | --- |
+| **面部近景（约 50 厘米，保持 3 秒）** | face | 面部疤痕、纹身 | — |
+| **右手背 → 右小臂（内侧、外侧）→ 右大臂（外侧、内侧）→ 左侧同样（2026-11 按《AI面试需求》采集细则新增）** | hand_back_right / forearm_right / upper_arm_right / hand_back_left / forearm_left / upper_arm_left | 各分区纹身、疤痕；小臂自伤划痕；左右和部位以采集步骤为准 | 手掌长宽；小臂、大臂关键点长度 |
 | 正面站立、背面、侧平举、上举（约 2 米） | stand / back / arms / arms_up | 四肢、大臂、背部纹身疤痕 | 大臂、小臂关键点长度 |
 | **露出脖子（左右转头，约 1 米）** | neck（两张图一起送大模型） | 脖子纹身 | 不需要（脖子有纹身即不录用） |
 | **双臂近景：小臂横放胸前，先外侧后内侧（约 1 米）** | arms_out / arms_in | 小臂、手腕、手背纹身疤痕；自伤划痕多在小臂内侧 | 小臂关键点长度 |
 | 双手掌心、双手手背（走近） | palms / backs | 手指、手掌、手背完整性；手指、手背、手掌纹身疤痕 | 手掌长、宽 |
 | 握拳张开、拇指对捏、随机手势 | — | 手指功能、防作弊 | — |
 
-岗位画像的 `steps` 决定启用哪些步骤，四个岗位都已加上 `neck` 和 `arms_close`。
+岗位画像的 `steps` 决定启用哪些步骤。四个岗位 2026-11 起用分区近景（face、hand_back_*、forearm_*、upper_arm_*）代替双臂近景（arms_close，仍可用），
+并按采集细则把近景放在前、全身动作放在最后。各分区的判定规则见 [REQUIREMENTS-2026-11.md](REQUIREMENTS-2026-11.md)。
 
 ## 2. 手掌 / 手背 / 手指完整性
 
@@ -23,6 +26,21 @@
    指尖段（原有）和**掌面 13 个采样点**（新增，`contour.palm_on_mask_min: 0.75`）落在掩码外即报疑似。
    肤色参照改为掌面 + 各指近节的多点投票，局部缺失时不会把背景当成肤色。
 3. **大模型**：提示词 v2 增加 `deformed`（手指、手掌、手背畸形、残缺、并指多指、严重挛缩）。
+   2026-11-05 起按招聘方要求逐类识别，以下都不录用（报告写明哪只手、哪根手指，如"右手并指（中指、无名指）"）：
+
+   | 标签 | 情况 | L1 能否发现 |
+   | --- | --- | --- |
+   | `amputated` | 断指：整根或部分截断，有残端、截断疤痕 | 能（长度比、指尖不在皮肤上） |
+   | `missing` | 缺指：少于 5 根，没有截断残端（先天缺指） | 能（同上） |
+   | `missing_or_short` | 明显短缩，或分不清断指还是缺指 | 能 |
+   | `extra` | 多指：多出完整的手指 | **不能**（关键点模型固定画 5 根） |
+   | `extra_deformed` | 多指畸形：赘生小指、分叉指、重复拇指，或切除后的残迹 | **不能** |
+   | `syndactyly` | 并指：相邻手指皮肤或骨相连，张开时分不开 | 部分（张开时指间看不到缝隙 `no_gap`） |
+   | `deformed` | 其他畸形：弯曲变形、严重挛缩、手掌手背残缺 | 部分 |
+
+   哪些标签算"有问题"写在提示词文件（`configs/prompts/v3.json` 的 `checks.fingers.positive`），中文名在 `labels_cn`。
+   L1 看不出的多指、多指畸形写在 `thresholds.yaml` 的 `arbitration.per_check.fingers.l1_blind_labels`：
+   大模型报这两类时，L1 的"正常"不算两路不一致，结论为"疑似问题·待人工确认"（只有一路证据，不自动判不符合）。
 
 另外，手部检测项要求**掌心、手背两个视角都拍到**（`checks.json` 的 `required_views`），缺一个就"需人工复核"，
 保证报告上的"手掌手背均正常"有两面的证据。
@@ -64,15 +82,15 @@
 | 无文字或无明显符号可录用（普通文字、符号需看内容） | `content.text_neutral / symbol` | review |
 | 小星星、叶片、云朵、小花、波浪线条 | `content.benign` | pass |
 | 脖子有纹身，即使面积小也不录用 | `tattoo.regions.neck.action` | block |
-| 大臂、小臂：面积 < 身份证 85.6×54 mm 放行 | `regions.upper_arm/forearm.size_ref: id_card` | pass |
+| 大臂、小臂：面积 < 身份证 85.6×54 mm | `regions.upper_arm/forearm.small` | **review**（2026-11-05：案例 A-01–A-04 与 A-08–A-10 矛盾，交人工判断；洗后淡痕 pass；宽松档 pass） |
 | 大臂、小臂：面积 ≥ 身份证不录用…… | `large` | block |
-| ……但洗过、色素明显变淡、无攻击性的放行 | `large_faded` | pass |
+| ……洗过、色素明显变淡但面积 ≥ 身份证（2026-11 案例 A-06、A-07） | `large_faded` | block |
 | 颜色过深，最终以核验为准 | `regions.*.dark` | 手臂 review；手指、手背 block |
 | 手指：面积比 1 分硬币（直径 1.8 cm），≥ 硬币不录用 | `regions.finger.size_ref: coin`、`large` | block |
-| 手指：整体洗过褪色的淡痕可录 | `regions.finger.large_faded` | pass |
+| 手指：洗过褪色但面积 ≥ 硬币 | `regions.finger.large_faded` | block |
 | 手指纹身 ≤ 1 处可录、≥ 2 处不录用 | `regions.finger.max_count: 1` | block（按"哪只手哪根手指"跨视角去重） |
 | 手背多处纹身叠加 | `regions.hand_back.max_count: 1` | block |
-| 手背属外露高频部位，作业时持续外露 | `regions.hand_back.single` | **review**（见 3.3） |
+| 手指、手背单处、小、浅色、无攻击性 | `regions.finger/hand_back.single` | **pass**（2026-11-05 确认，见 3.3）；手掌 review |
 | 纹身位置仅限大臂、小臂 | `regions.face/other.action` | review |
 | 多条整齐平行划痕（自伤风险） | `scar.parallel_multiple` | block |
 | 长条手术刀疤，岗位为精细作业 | `scar.surgical_long_fine_work`（岗位 `scar.params.fine_work: true`） | block；非精细作业 review |
@@ -99,7 +117,8 @@
 ### 3.3 两处解读（招聘方已确认：标准档交人工）
 
 - **手背单处、小面积、浅色、无攻击性的纹身**：表格允许，但"不允许录用"清单写了"手背属于外露高频部位"。
-  默认交人工核验；如果应直接放行，把 `regions.hand_back.single` 改成 `pass`，应直接拦截改成 `block`。
+  2026-10-27 定为交人工核验；2026-11-05 按《AI面试需求》规则第 5 条改为可录用（手指同样），`regions.finger/hand_back.single: pass`。
+  要改回交人工核验填 `review`，直接拦截填 `block`；严格档仍按不录用处理。
 - **大臂、小臂颜色过深**：表格写"颜色过深 拦截，最终以核验为准"，默认交人工核验（不自动拦截）。
 
 ### 3.4 纹身、疤痕、污渍怎么区分

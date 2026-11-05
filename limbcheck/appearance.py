@@ -293,8 +293,16 @@ def length_eval(masks: dict, body, pol: dict, min_vis: float = 0.3) -> dict | No
             "shoulder_from": sh_from}
 
 
-def length_verdict(info: dict | None, pol: dict, gender: str | None) -> tuple[str, str, float] | None:
-    rule = (pol.get("rules") or {}).get(gender or "")
+def length_rule(pol: dict, gender: str | None, params: dict | None = None) -> dict | None:
+    """该性别适用的发长标准：rules 里写标准名（standards 的键）或直接写一条标准；岗位参数 {gender}_length 可换成另一条。"""
+    rule = (params or {}).get(f"{gender}_length") or (pol.get("rules") or {}).get(gender or "")
+    if isinstance(rule, str):
+        rule = (pol.get("standards") or {}).get(rule)
+    return rule or None
+
+
+def length_verdict(info: dict | None, pol: dict, gender: str | None, params: dict | None = None) -> tuple[str, str, float] | None:
+    rule = length_rule(pol, gender, params)
     if not rule:
         return None
     if not info or info.get("ratio") is None:
@@ -310,7 +318,8 @@ def length_verdict(info: dict | None, pol: dict, gender: str | None) -> tuple[st
 # ---------------- 汇总 ----------------
 
 def hair_result(img: np.ndarray, segmenter, body=None, meta: dict | None = None, pol: dict | None = None,
-                source: str = "L1:mpseg-hair") -> CheckResult:
+                source: str = "L1:mpseg-hair", params: dict | None = None) -> CheckResult:
+    """params：岗位画像里 hair 的参数（如 male_length: collar 换用"后不过领"）。"""
     pol = pol or hair_policy()
     meta = meta or {}
     gender = meta.get("gender") if meta.get("gender") in ("male", "female") else None
@@ -324,7 +333,7 @@ def hair_result(img: np.ndarray, segmenter, body=None, meta: dict | None = None,
                                 col["text"]))
     lpol = pol.get("length") or {}
     info = length_eval(masks, body, lpol) if lpol else None
-    lv = length_verdict(info, lpol, gender) if lpol else None
+    lv = length_verdict(info, lpol, gender, params) if lpol else None
     if lv is not None:
         verdict, text, conf = lv
         findings.append(Finding("hair", "head", "long" if verdict != PASS else "length_ok", verdict != PASS, round(conf, 3), source,

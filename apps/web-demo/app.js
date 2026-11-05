@@ -32,7 +32,7 @@ const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', r
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', left_foot: '左脚', right_foot: '右脚', left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿', arms: '双臂', legs: '双腿', whole_body: '全身', hands: '双手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定', long: '发长不符合', length_ok: '发长符合', length: '发长（只记录）' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', amputated: '疑似断指', missing: '疑似缺指', extra: '疑似多指', extra_deformed: '疑似多指畸形', syndactyly: '疑似并指', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似并指或遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定', long: '发长不符合', length_ok: '发长符合', length: '发长（只记录）' };
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
@@ -349,7 +349,7 @@ function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:sk
     }
     for (const [a, b] of GAP_PAIRS) if (ev.gaps[`${a}-${b}`] === false) {
       for (const f of [a, b]) if (!parts.includes(`${side}_hand.${f}`)) parts.push(`${side}_hand.${f}`);
-      findings.push(Finding('fingers', `${side}_hand.${a}`, 'no_gap', true, 0.6, source, `${a}-${b}`, `${FINGER_CN[a]}和${FINGER_CN[b]}之间看不到缝隙，疑似被遮挡（关键点脑补）`));
+      findings.push(Finding('fingers', `${side}_hand.${a}`, 'no_gap', true, 0.6, source, `${a}-${b}`, `${FINGER_CN[a]}和${FINGER_CN[b]}之间看不到缝隙，疑似并指或被遮挡（关键点脑补）`));
     }
     if (openHand && notSpread(ev).length) { closed = true; findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, notSpread(ev).map(p => p.join('-')), `${SIDE_CN[side] || '手'}手指没有分开，无法逐指确认`)); }
   }
@@ -494,8 +494,8 @@ function snapshot(withOverlay = true, box = null, maxW = 960, q = 0.85) {
   if (withOverlay) cc.drawImage(canvas, x, y, w, h, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', q);
 }
-function handsBox(pad = 0.3) {
-  const pts = S.hands.flatMap(h => h.lm);
+function handsBox(pad = 0.3, hands = S.hands) {
+  const pts = hands.filter(Boolean).flatMap(h => h.lm);
   if (!pts.length) return null;
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   let [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -531,10 +531,10 @@ function l1ForView(view) {
   return { l1: out, brightness: Math.round(b) };
 }
 
-function captureView(st, view, extraImgs = []) {
+function captureView(st, view, extraImgs = [], box = undefined) {
   if (S.frames.some(f => f.view === view)) return;
   const { l1, brightness } = l1ForView(view);
-  const box = VIEWS[view].kind === 'hand' ? handsBox() : null;
+  if (box === undefined) box = VIEWS[view].kind === 'hand' ? handsBox() : null;
   const img = snapshot(false, box, 1280, 0.88), scale = imageScale(view, box);
   S.frames.push({ view, step: S.steps[S.stepIdx].id, img, extra_imgs: extraImgs, scale, l1, brightness, at_ms: Math.round(performance.now() - S.t0), hands: S.hands.map(h => ({ side: h.side, by: h.sideBy, score: r2(h.score), facing: facing(h) })) });
   st.views = [...(st.views || []), view];
@@ -649,6 +649,90 @@ function handPose(want) {
     },
     onHold(st) { captureView(st, want === 'palm' ? 'palms' : 'backs'); return { done: true }; },
     onTimeout: captureOnTimeout(want === 'palm' ? 'palms' : 'backs', 'hands'),
+  };
+}
+
+// ---------- 纹身 / 疤痕分区近景（《AI面试需求》采集细则）：面部 → 右手背 → 右小臂 → 右大臂 → 左手背 → 左小臂 → 左大臂 ----------
+// 每处单独拍、保持 3 秒（thresholds.yaml 的 close_up）；小臂、大臂内外两面各拍一张。视角名带左右（hand_back_right……），
+// 服务端按视角确定左右和部位（大模型常把画面左右当成身体左右），再按 configs/policies/marks.yaml 的分区规则判定
+const CLOSE = () => TH.close_up || {};
+const closeHold = () => (FAST ? 500 : CLOSE().hold_ms ?? 3000);
+const inFrame = p => p.x > 0.01 * W && p.x < 0.99 * W && p.y > 0.01 * H && p.y < 0.99 * H;
+const ARM_CN = { right: '右', left: '左' };
+// 脸的位置（像素框）：姿态模型的面部 11 个点（鼻、眼、耳、嘴），按点的宽度外扩成整张脸
+function faceBoxOf(lm) {
+  const pts = lm.slice(0, 11).filter(p => (p.visibility ?? 1) > 0.5).map(toPx);
+  if (pts.length < 4) return null;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y), w = Math.max(...xs) - Math.min(...xs);
+  return { x0: Math.min(...xs) - 0.25 * w, x1: Math.max(...xs) + 0.25 * w, y0: Math.min(...ys) - 0.8 * w, y1: Math.max(...ys) + 0.45 * w, n: pts.length };
+}
+const boxOfFace = (f, pad = 0.2) => { const w = f.x1 - f.x0, h = f.y1 - f.y0, x0 = Math.max(0, f.x0 - pad * w), y0 = Math.max(0, f.y0 - pad * h); return [x0, y0, Math.min(W, f.x1 + pad * w) - x0, Math.min(H, f.y1 + pad * h) - y0]; };
+// 要拍的那只手：按位置认出的同侧手；画面里只有一只手且没被认成另一侧时就用它（受检者已被告知伸哪只手）
+function pickHand(side) {
+  const same = S.hands.find(h => h.side === side);
+  if (same) return same;
+  if (S.hands.length === 1 && S.hands[0].side !== (side === 'right' ? 'left' : 'right')) { S.hands[0].side = side; return S.hands[0]; }
+  return null;
+}
+function handBackStep(side) {
+  const name = SIDE_CN[side], view = `hand_back_${side}`;
+  return {
+    title: `${name}手背近景`, needs: ['pose', 'hands'], scope: 'marks', get hold() { return closeHold(); },
+    text: () => `请伸出${name}，手背朝向镜头，掌心朝下自然平放，五指自然伸直，手离镜头约 40 厘米，保持 3 秒`,
+    check() {
+      const h = pickHand(side);
+      if (!h) return { hint: S.hands.length > 1 ? `请只伸出${name}，另一只手放下` : `请把${name}举到镜头前，手背朝向镜头` };
+      if (palmLen(h.lm) < (CLOSE().hand_min_size ?? 0.12) * H) return { hint: `请把${name}再靠近镜头一些` };
+      if (h.lm.some(p => !inFrame(p))) return { hint: `${name}请完整放进画面，手指和手腕都要看得到` };
+      if (facing(h) !== 'back') return { hint: facingHint(h, 'back') };
+      return { ok: true };
+    },
+    onHold(st) { captureView(st, view, [], handsBox(0.35, [pickHand(side)])); return { done: true }; },
+    onTimeout(st) { if (!S.hands.length) return 'timeout'; captureView(st, view, [], handsBox(0.35, [pickHand(side) || S.hands[0]])); return 'review'; },
+  };
+}
+// 小臂 / 大臂：先内侧（或外侧）一张，再翻转拍另一面；两张一起交大模型
+function armStep(side, region) {
+  const arm = ARM_CN[side], view = `${region}_${side}`, fore = region === 'forearm';
+  const [a, b] = fore ? [`${side}_elbow`, `${side}_wrist`] : [`${side}_shoulder`, `${side}_elbow`];
+  const part = fore ? '小臂' : '大臂';
+  return {
+    title: `${arm}${part}近景（${fore ? '内侧 → 外侧' : '外侧 → 内侧'}）`, needs: ['pose', 'hands'], scope: 'marks', get hold() { return closeHold(); },
+    text: st => fore
+      ? (st.phase ? `把${arm}小臂慢慢翻过来，手背和小臂外侧朝向镜头` : `请把${arm}边袖子往上拉，露出整个${arm}小臂，手肘到手腕都放进画面，掌心和小臂内侧朝向镜头`)
+      : (st.phase ? `${arm}臂向侧面抬起，掌心朝前，露出${arm}大臂内侧` : `请把${arm}边袖子拉到大臂以上，露出肩膀下面这段手臂，手臂自然下垂，${arm}大臂外侧朝向镜头`),
+    check(st, now) {
+      const B = S.body, mv = TH.pose.min_visibility;
+      if (!B) return { hint: `请让${arm}${part}出现在画面中` };
+      if (!has(B, a, mv) || !has(B, b, mv) || !inFrame(B.joints[a]) || !inFrame(B.joints[b])) return { hint: fore ? `${arm}小臂请完整放进画面，手肘到手腕都要看得到` : `${arm}大臂请完整放进画面，肩膀到手肘都要看得到` };
+      const len = dist(B.joints[a], B.joints[b]); st.metrics[`${part}占画面`] = r2(len / W);
+      if (len < (CLOSE().limb_min_frac ?? 0.2) * W) return { hint: `请把${arm}${part}再靠近镜头一些` };
+      if (!fore) {
+        const v = { x: B.joints[b].x - B.joints[a].x, y: B.joints[b].y - B.joints[a].y };
+        const raise = Math.acos(Math.max(-1, Math.min(1, v.y / (Math.hypot(v.x, v.y) + 1e-6)))) * 180 / Math.PI;
+        st.metrics['抬臂角度'] = Math.round(raise);
+        if (st.phase === 0 && raise > 35) return { hint: `${arm}臂请自然下垂` };
+        if (st.phase === 1 && raise < (CLOSE().raise_min_deg ?? 60)) return { hint: `${arm}臂再向侧面抬高一些，露出大臂内侧` };
+      }
+      // 小臂内外侧、大臂内侧看手的朝向；手出画（离得近）时前 6 秒要求手也在画面里，之后放宽
+      const want = fore ? (st.phase ? 'back' : 'palm') : (st.phase ? 'palm' : null);
+      if (want) {
+        const h = pickHand(side);
+        if (!h) { if (now - (st.phaseAt ?? st.start) < 6000) return { hint: `${arm}手也放进画面里，${want === 'palm' ? '掌心' : '手背'}朝向镜头` }; }
+        else if (facing(h) !== want) return { hint: want === 'palm' ? `${arm}手掌心朝向镜头` : `把${arm}小臂翻过来，手背朝向镜头` };
+      }
+      return { ok: true };
+    },
+    onHold(st, now) {
+      if (st.phase === 0) {
+        st.firstImg = snapshot(false, null, 1280, 0.88);
+        st.evidence.push({ label: `${arm}${part}${fore ? '内侧' : '外侧'}`, img: snapshot(true, null, 480, 0.8) });
+        st.phase = 1; st.phaseAt = now; say(this.text(st), true); return { done: false };
+      }
+      captureView(st, view, st.firstImg ? [st.firstImg] : []);
+      return { done: true };
+    },
+    onTimeout(st) { if (!S.body) return 'timeout'; captureView(st, view, st.firstImg ? [st.firstImg] : []); return 'review'; },
   };
 }
 
@@ -922,6 +1006,33 @@ const STEP_LIB = {
     },
     onTimeout: captureOnTimeout(st => (st.phase ? 'arms_in' : 'arms_out'), 'pose'),
   },
+  // 面部近景（采集细则第 1 项）：正对镜头、保持 3 秒；面部明显异常（大面积伤疤）记录复核，面部纹身按标准交人工核验
+  face: {
+    title: '面部近景', needs: ['pose'], scope: 'marks', get hold() { return closeHold(); },
+    text: () => '请摘下口罩和帽子，靠近镜头约 50 厘米，脸正对镜头，保持 3 秒不动',
+    check(st) {
+      if (!S.pose) return { hint: '请正对镜头，让整张脸出现在画面中' };
+      if (S.poseCount > (TH.quality.max_persons ?? 1)) return { hint: '画面中只能有一个人' };
+      const f = faceBoxOf(S.pose);
+      if (!f || f.n < 7) return { hint: '请摘下口罩、帽子，脸正对镜头' };
+      st.metrics['脸宽占画面'] = r2((f.x1 - f.x0) / W);
+      if (f.x1 - f.x0 < (CLOSE().face_min_frac ?? 0.2) * W) return { hint: '请再靠近镜头一些' };
+      if (f.x0 < 0 || f.x1 > W || f.y0 < 0 || f.y1 > H) return { hint: '脸出画了：请把脸移到画面中间' };
+      const nose = toPx(S.pose[0]), le = toPx(S.pose[7]), re = toPx(S.pose[8]);
+      const turn = (nose.x - (le.x + re.x) / 2) / (Math.abs(le.x - re.x) + 1e-6);
+      st.metrics['转头'] = r2(turn);
+      if (Math.abs(turn) > 0.2) return { hint: '请正对镜头，不要转头' };
+      return { ok: true };
+    },
+    onHold(st) { const f = faceBoxOf(S.pose); captureView(st, 'face', [], f ? boxOfFace(f) : null); return { done: true }; },
+    onTimeout(st) { if (!S.pose) return 'timeout'; captureView(st, 'face'); return 'review'; },
+  },
+  hand_back_right: handBackStep('right'),
+  forearm_right: armStep('right', 'forearm'),
+  upper_arm_right: armStep('right', 'upper_arm'),
+  hand_back_left: handBackStep('left'),
+  forearm_left: armStep('left', 'forearm'),
+  upper_arm_left: armStep('left', 'upper_arm'),
   palms: { title: '双手掌心朝前', ...handPose('palm') },
   backs: { title: '翻转为手背朝前', ...handPose('back') },
   flex: {
@@ -1005,19 +1116,20 @@ function nextRound(step, st, now) {
 }
 
 // 检测范围：全部 / 只测身体（需要姿态、不需要手部模型的步骤）/ 只测手部 / 只测头发；分模块测试时不用每次走完全流程
-const SCOPE_CN = { body: '只测身体', hands: '只测手部', hair: '只测头发', nails: '只测指甲' }, GENDER_CN = { male: '男', female: '女' };
-const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands') && !s.scope, hands: s => s.needs.includes('hands') && !s.needs.includes('pose'), hair: s => s.scope === 'hair', nails: s => s.scope === 'nails' };
+const SCOPE_CN = { body: '只测身体', hands: '只测手部', hair: '只测头发', nails: '只测指甲', marks: '只测纹身 / 疤痕' }, GENDER_CN = { male: '男', female: '女' };
+const SCOPE_STEP = { all: () => true, body: s => s.needs.includes('pose') && !s.needs.includes('hands') && !s.scope, hands: s => s.needs.includes('hands') && !s.needs.includes('pose'), hair: s => s.scope === 'hair', nails: s => s.scope === 'nails', marks: s => s.scope === 'marks' || s.id === 'neck' };
 // 范围内的检测项：有视角属于这一类（手部视角 / 身体视角）的检测项；协调性两类都有
 function scopeChecks(scope) {
   if (!scope || scope === 'all') return null;
   if (scope === 'hair') return ['hair'];
   if (scope === 'nails') return ['nails'];
+  if (scope === 'marks') return ['tattoo', 'scar'];
   const kind = scope === 'hands' ? 'hand' : 'body';
   return Object.entries(CHECKS).filter(([c, d]) => c === 'coordination' || (c === 'liveness' && scope === 'hands') || (d.views || []).some(v => VIEWS[v]?.kind === kind)).map(([c]) => c);
 }
 
 function makeSteps(job, scope = 'all') {
-  let ids = job.steps.filter(id => STEP_LIB[id] && (SCOPE_STEP[scope] || SCOPE_STEP.all)(STEP_LIB[id]));
+  let ids = job.steps.filter(id => STEP_LIB[id] && (SCOPE_STEP[scope] || SCOPE_STEP.all)({ ...STEP_LIB[id], id }));
   const unknown = job.steps.filter(id => !STEP_LIB[id]);
   if (unknown.length) console.warn('岗位配置里有网页端未实现的步骤，已跳过：', unknown);
   const hasChallenge = ids.includes('challenge');
@@ -1025,7 +1137,7 @@ function makeSteps(job, scope = 'all') {
   const li = ids.indexOf('legs'), si = ids.indexOf('squat');      // 腿部两个动作随机先后
   if (li >= 0 && si >= 0 && Math.random() < 0.5) [ids[li], ids[si]] = [ids[si], ids[li]];
   if (hasChallenge) {   // 挑战随机插在第一个手部步骤之后的任意位置
-    const handIdx = ids.map((id, i) => [id, i]).filter(([id]) => STEP_LIB[id].needs.includes('hands')).map(([, i]) => i);
+    const handIdx = ids.map((id, i) => [id, i]).filter(([id]) => STEP_LIB[id].needs.includes('hands') && STEP_LIB[id].scope !== 'marks').map(([, i]) => i);
     ids.splice(handIdx.length ? handIdx[0] + 1 + Math.floor(Math.random() * handIdx.length) : ids.length, 0, 'challenge');
   }
   return ids.map(id => ({ ...STEP_LIB[id], id, state: null }));
@@ -1125,11 +1237,7 @@ function readFace(now) {
     const r = poseLm.detectForVideo(grab, now);
     (r.segmentationMasks || []).forEach(m => { try { m.close?.(); } catch { /* 已释放 */ } });
     const lm = r.landmarks?.[0];
-    if (!lm) { S.face = null; return; }
-    const pts = lm.slice(0, 11).filter(p => (p.visibility ?? 1) > 0.5).map(toPx);
-    if (pts.length < 4) { S.face = null; return; }
-    const xs = pts.map(p => p.x), ys = pts.map(p => p.y), w = Math.max(...xs) - Math.min(...xs);
-    S.face = { x0: Math.min(...xs) - 0.25 * w, x1: Math.max(...xs) + 0.25 * w, y0: Math.min(...ys) - 0.8 * w, y1: Math.max(...ys) + 0.45 * w };
+    S.face = lm ? faceBoxOf(lm) : null;
   } catch { S.face = null; }
 }
 // 手的指尖、末节有没有挡在脸前
@@ -1309,6 +1417,8 @@ async function endRun() {
     fr.l1_server = an?.l1 || null;   // 服务端没结果（未启用或出错）时仲裁退回浏览器端 l1
   }
   S.analysesDone = analyses;
+  S.inquiry = await scarInquiry(reviews);
+  $('#banner').textContent = '检测完成，正在仲裁…';
   let arb;
   try {
     const r = await fetch('/api/arbitrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job: S.job.id, strictness: S.strictness, checks: scopeChecks(S.scope), frames: S.frames.map(f => ({ view: f.view, l1: f.l1, l1_server: f.l1_server, l2: f.l2 })), motion: modeOf('coordination') === 'off' ? null : motionPayload(), steps: S.results.map(r => ({ id: r.id, title: r.title, status: r.status, note: r.note })) }) });
@@ -1320,6 +1430,50 @@ async function endRun() {
   $('#banner').textContent = '检测完成，报告见下方';
   await saveRecord({ type: 'session', ...sessionRecord() });
   window.__done = true;
+}
+
+// ---------- 风险筛查·疤痕问询（configs/inquiry.yaml）：识别到疤痕才触发，无疤痕自动跳过；录下口头回答附在报告里，不参与自动判定 ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function scarInquiry(reviews) {
+  const cfg = WEB.inquiry?.scar;
+  if (!cfg?.enabled || !cfg.questions?.length) return null;
+  const views = reviews.filter(r => (r.results?.scar?.findings || []).some(f => f.value?.kind === 'scar')).map(r => r.view);
+  if (!views.length) return null;
+  const question = cfg.questions[Math.floor(Math.random() * cfg.questions.length)];
+  const out = { question, views, audio: null, ms: 0, note: '' };
+  $('#banner').textContent = `请回答：${question}`;
+  await sleep(say(question, true) + 300);
+  if (!cfg.record_audio) { out.note = '只播报问题，未录音'; return out; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { out.note = '浏览器不支持录音'; return out; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream), chunks = [];
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(r => { rec.onstop = r; });
+    const btn = document.createElement('button');
+    btn.textContent = '回答完毕'; btn.className = 'ghost';
+    btn.style.cssText = 'position:absolute;right:16px;bottom:16px;z-index:5;font-size:20px;padding:10px 22px;background:#fff';   // 横幅盖在画面上方，按钮放到右下角
+    $('#banner').after(btn);
+    const t0 = performance.now();
+    rec.start();
+    $('#banner').textContent = `请回答：${question}（正在录音，最长 ${Math.round((cfg.answer_ms ?? 20000) / 1000)} 秒）`;
+    await Promise.race([sleep(cfg.answer_ms ?? 20000), new Promise(r => { btn.onclick = r; })]);
+    rec.stop(); await stopped; btn.remove();
+    out.ms = Math.round(performance.now() - t0);
+    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+    out.audio = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+  } catch (e) { out.note = `录音失败：${e.message || e}`; }
+  finally { stream?.getTracks().forEach(t => t.stop()); }
+  return out;
+}
+function inquirySection() {
+  const q = S.inquiry;
+  if (!q) return '';
+  return `<h3>风险筛查·疤痕问询</h3>
+  <p class="muted small">在${q.views.map(v => esc(VIEWS[v]?.name || v)).join('、')}识别到疤痕，向受检者提问并录下口头回答，供 HR 参考，不参与自动判定。</p>
+  <p><b>问题：</b>${esc(q.question)}</p>
+  ${q.audio ? `<audio controls src="${q.audio}"></audio><span class="muted small"> 录音 ${(q.ms / 1000).toFixed(0)} 秒</span>` : `<p class="muted small">${esc(q.note || '没有录音')}</p>`}`;
 }
 
 // ---------- 检测记录：每次检测存一条（不含图片），用于统计哪些步骤容易失败、卡在哪个提示；统计见 records.html ----------
@@ -1334,6 +1488,7 @@ function sessionRecord() {
     checks: Object.fromEntries(Object.entries(S.arb.by_check || {}).map(([c, e]) => [c, { decision: e.decision, mode: e.mode }])),
     overall: worst(rows.filter(r => r.mode === 'judge').map(r => r.decision)),
     summary: S.arb.summary ? { outcome: S.arb.summary.outcome, groups: Object.fromEntries(S.arb.summary.groups.map(g => [g.id, g.record_only ? 'record_only' : g.decision])), conditions: S.arb.summary.conditions.map(c => c.check), manual: S.arb.summary.manual.length } : null,
+    inquiry: S.inquiry ? { views: S.inquiry.views, answered_ms: S.inquiry.ms, note: S.inquiry.note } : null,
     server_errors: (S.analysesDone || []).filter(a => a.errors?.length).map(a => `${a.view}: ${a.errors.join('；')}`).slice(0, 10),
     validation: v.validation ? { subject_id: v.subject_id, truth: v.truth, meta: v.meta } : null,
   };
@@ -1435,6 +1590,7 @@ function buildExport() {
     retakes: S.retakes || 0,
     reviews: S.reviewsDone,
     arbitration_by_view: S.arb.by_view, arbitration: { by_check: S.arb.by_check, overall: S.arb.overall, summary: S.arb.summary, error: S.arb.error },
+    inquiry: S.inquiry || null,
     duration_ms: S.durationMs,
   };
 }
@@ -1534,6 +1690,7 @@ function renderReport() {
   <p class="muted small">岗位要求：${(job.requirements || []).map(esc).join('；')}。标“只记录”的项目在没有书面岗位依据前不作判定，只保存结果用于评估。</p>
   <table><tr><th>项目</th><th>依据</th><th>结果</th><th>说明</th></tr>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="small nowrap">${r.kind}</td><td>${decisionCell(r)}</td><td class="small">${esc(r.reason)}</td></tr>`).join('')}</table>
   ${marksBlock}
+  ${inquirySection()}
   ${motionBlock}
   <h3>各视角证据与判定</h3>
   <p class="muted small">L1 为专用模型 + 规则（启用服务端判定时用服务端对高清截图的结果，浏览器端结果只用于引导、折叠在下面）；L2 为视觉大模型；仲裁规则与离线评测相同（configs/thresholds.yaml 的 arbitration 段）。</p>
@@ -1684,7 +1841,7 @@ async function init() {
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
   if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
-  if (['all', 'body', 'hands', 'hair', 'nails'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
+  if (['all', 'body', 'hands', 'hair', 'nails', 'marks'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
   if (['male', 'female'].includes(Q.get('gender'))) $('#gender').value = Q.get('gender');
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';

@@ -1,4 +1,4 @@
-# 纹身 / 疤痕录用标准（招聘方 2026-10 提供），由 limbcheck/marks.py 执行。
+# 纹身 / 疤痕录用标准（招聘方 2026-10 提供，2026-11 按《AI面试需求》案例表 A-01–A-11、B-01–B-19、S01–S10 更新），由 limbcheck/marks.py 执行。
 # 改标准只改这里：改完运行 `limbcheck export-web-config`（网页 demo 读生成的 JSON），再跑 pytest。
 # 动作（action）只有四种：
 #   pass    符合标准，自动放行
@@ -42,39 +42,43 @@ tattoo:
   regions:
     neck:
       name: 脖子
-      action: block              # 脖子有纹身，即使面积小也不录用
+      action: block              # 脖子有纹身，即使面积小也不录用（B-01 小花、B-02 星星）
     upper_arm:
       name: 大臂
       size_ref: id_card
-      large: block               # 面积 ≥ 身份证：不录用……
-      large_faded: pass          # ……但洗过、色素明显变淡且无攻击性 → 放行
-      dark: review               # 颜色过深：最终以核验为准
+      large: block               # 面积 ≥ 身份证：不录用（B-14、B-16）
+      small: review              # 面积小于身份证、浅色、温和：案例 A-01–A-04 判不录用、A-08–A-10 判可录，描述相同无法区分，
+                                 # 2026-11-05 确认交人工判断（改为 pass 即自动放行）；洗后淡痕小于身份证仍可录（A-05）
+      large_faded: block         # 洗过、颜色很浅但面积 ≥ 身份证也不录用（A-06 小臂、A-07 大臂）；面积小于身份证的洗后淡痕可录（A-05）
+      dark: review               # 颜色过深：标准写"以现场照片 / 核验为准"
     forearm:
       name: 小臂
       size_ref: id_card
       large: block
-      large_faded: pass
+      small: review
+      large_faded: block
       dark: review
     finger:
       name: 手指
-      size_ref: coin             # 以 1 分硬币为参照
+      size_ref: coin             # 以 1 分硬币（直径 1.8 cm）为参照
       large: block
-      large_faded: pass          # "或整体洗过褪色的淡痕"
+      large_faded: block         # 面积 ≥ 1 分硬币即不录用（同 A-06、A-07：洗淡不抵面积）
       dark: block                # 颜色过深不予录用
-      max_count: 1               # 手指纹身 ≥ 2 处不录用（按"哪只手哪根手指"去重，跨视角合并）
+      max_count: 1               # 手指纹身 ≥ 2 处不录用（B-08、B-09；按"哪只手哪根手指"去重，跨视角合并）
+      single: pass               # 单处、小于硬币、颜色浅、无攻击性：可录用（规则第 5 条；与案例 A-11 矛盾，2026-11-05 确认按规则第 5 条）
     hand_back:
       name: 手背
       size_ref: id_card
       large: block
-      large_faded: review
-      dark: block
-      max_count: 1               # 手背多处纹身叠加不录用
-      single: review             # 手背属外露高频部位：单处小面积浅色无攻击性也交人工核验（改为 pass 即放行）
+      large_faded: block
+      dark: block                # B-05 手背颜色较深的鸽子
+      max_count: 1               # 手背多处纹身叠加不录用（B-06）
+      single: pass               # 单处、小面积、颜色浅、无攻击性：可录用（2026-11-05 确认同手指按规则第 5 条；改为 review 即交人工核验）
     palm:
       name: 手掌
       size_ref: id_card
       large: block
-      large_faded: review
+      large_faded: block
       dark: block
       max_count: 1
       single: review

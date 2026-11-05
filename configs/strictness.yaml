@@ -25,6 +25,7 @@ levels:
         symbol: {action: block}
       tattoo:
         regions:
+          finger: {single: block}
           hand_back: {single: block, large_faded: block}
           palm: {single: block, large_faded: block}
           upper_arm: {dark: block}
@@ -56,8 +57,8 @@ levels:
         regions:
           hand_back: {single: pass}
           palm: {single: pass}
-          upper_arm: {dark: pass}
-          forearm: {dark: pass}
+          upper_arm: {dark: pass, small: pass}
+          forearm: {dark: pass, small: pass}
           other: {action: pass}
           face: {action: review}
         sticker: pass

@@ -87,3 +87,21 @@ def test_nested_braces_in_strings():
     text = '{"items": [{"check": "hair", "part": "head", "label": "natural", "value": "黑色 {偏棕}", "confidence": 0.9}], "image_quality": "good"} 其他文字 }'
     parsed, errs = parse_reply(text, ["hair"])
     assert parsed["items"][0]["value"] == "黑色 {偏棕}"
+
+
+def test_finger_anomalies_named_in_note():
+    """断指、缺指、多指、多指畸形、并指都算有问题（不录用），说明里写明是哪一种、哪根手指。"""
+    for label, cn in (("amputated", "断指"), ("missing", "缺指"), ("extra", "多指"), ("extra_deformed", "多指畸形"), ("syndactyly", "并指")):
+        text = _reply([
+            {"check": "fingers", "part": "right_hand", "label": label, "fingers": ["middle", "ring"], "value": 5, "confidence": 0.9},
+            {"check": "fingers", "part": "left_hand", "label": "normal", "fingers": [], "value": 5, "confidence": 0.9},
+        ])
+        parsed, errs = parse_reply(text, ["fingers"])
+        assert not errs, errs
+        res = to_check_results(parsed, ["fingers"], "palms", "L2:test")["fingers"]
+        assert res.positive is True and res.parts == ["right_hand.middle", "right_hand.ring"], label
+        assert res.note == f"右手{cn}（中指、无名指）", res.note
+    text = _reply([{"check": "fingers", "part": "left_hand", "label": "syndactyly", "fingers": ["ring", "little"], "confidence": 0.9,
+                    "attrs": {"also": ["extra_deformed"]}}])
+    res = to_check_results(parse_reply(text, ["fingers"])[0], ["fingers"], "backs", "L2:test")["fingers"]
+    assert res.note == "左手并指（无名指、小指），另有多指畸形"

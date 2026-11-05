@@ -322,6 +322,18 @@ def mode_of(job: dict | None, check: str) -> str:
     return c.get("mode", "judge")
 
 
+def problem_kinds(*results: CheckResult | None) -> list[str]:
+    """各路结果里有问题的发现属于哪一类：按标准判定的用 value.kind（如发色 hair_color、发长 hair_length），其余用标签（如大模型的 dyed）。
+    综合判断据此区分"可整改"的问题（configs/summary.yaml 的 fixable.*.only）。"""
+    out = set()
+    for r in results:
+        for f in (r.findings if r else []):
+            v = f.value if isinstance(f.value, dict) else {}
+            if f.positive is True or v.get("verdict") in ("block", "review", "clean"):
+                out.add(v.get("kind") or f.label)
+    return sorted(out)
+
+
 def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = None, motion: dict | None = None,
                       checks: list[str] | None = None, steps: list[dict] | None = None) -> dict:
     """frames: [{view, l1: {check: CheckResult dict}, l1_server: {...}, l2: {check: CheckResult dict}}]。
@@ -350,13 +362,14 @@ def arbitrate_session(job_id: str, frames: list[dict], strictness: str | None = 
             final = arbitrate(c, a, b, cfg, mode, final_attempt)
             first = arbitrate(c, a, b, cfg, mode, 0)
             out[c] = {**final.to_dict(), "shadow_first_attempt": first.shadow,
-                      "l1_from": "server" if use_srv else "browser"}
+                      "l1_from": "server" if use_srv else "browser", "problems": problem_kinds(a, b)}
         by_view[view] = out
     by_check: dict = {}
     for view, res in by_view.items():
         for c, r in res.items():
             e = by_check.setdefault(c, {"mode": r["mode"], "views": {}, "decision": None, "shadow": None, "notes": []})
             e["views"][view] = r["decision"]
+            e["problems"] = sorted(set(e.get("problems", [])) | set(r["problems"]))
             e["decision"] = worst([e["decision"], r["decision"]])
             e["shadow"] = worst([e["shadow"], r["shadow"]])
 

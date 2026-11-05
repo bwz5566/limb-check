@@ -31,7 +31,7 @@ def test_fail_beats_everything():
 
 
 def test_review_needs_human():
-    s = summarize({**OK, "hair": e("fail_suggested", reason="整体染色（红色）")}, STEPS, modes=MODES)
+    s = summarize({**OK, "hair": e("review", reason="发色接近阈值，需人工核验")}, STEPS, modes=MODES)
     assert s["outcome"] == "manual" and s["manual"][0]["group"] == "头发"
 
 
@@ -63,3 +63,15 @@ def test_challenge_failure_is_liveness_review():
 
 def test_redo():
     assert summarize({**OK, "limbs": e("redo")}, STEPS, modes=MODES)["outcome"] == "redo"
+
+
+def test_hair_color_is_fixable_but_length_is_not():
+    """招聘方 2026-11：头发染回自然色可整改（有条件通过）；男生发长不符合、说不清是什么问题时仍交人工。"""
+    dyed = {**e("fail_suggested", reason="整体染色（红色）"), "problems": ["dyed", "hair_color"]}
+    s = summarize({**OK, "hair": dyed}, STEPS, modes=MODES)
+    assert s["outcome"] == "conditional" and "染回自然色" in s["conditions"][0]["text"]
+    long_ = {**e("fail_suggested", reason="男生长发"), "problems": ["hair_length"]}
+    assert summarize({**OK, "hair": long_}, STEPS, modes=MODES)["outcome"] == "manual"
+    both = {**e("fail_suggested"), "problems": ["hair_color", "hair_length"]}
+    assert summarize({**OK, "hair": both}, STEPS, modes=MODES)["outcome"] == "manual"
+    assert summarize({**OK, "hair": e("fail_suggested")}, STEPS, modes=MODES)["outcome"] == "manual"

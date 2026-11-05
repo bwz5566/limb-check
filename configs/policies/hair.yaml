@@ -42,6 +42,10 @@ length:
   levels: {short: 0.75, collar: 0.95, shoulder: 1.2}
   names: {short: 短发, collar: 及领, shoulder: 及肩, long: 过肩}
   # 性别由招聘方在检测前填写，系统不从图像推断；未填写时只记录发长
-  # 常见的更严标准"男生后不过领"：把 max_ratio 改成 0.8 左右
+  # 发长标准（招聘方 2026-11：男生"发尾及肩不录用"或"后不过领"两种都可用）。
+  # rules 里写默认用哪一条；某个岗位要用另一条，在岗位画像里写 checks.hair.params.male_length（如 collar）
+  standards:
+    shoulder: {max_ratio: 0.95, action: block, borderline: 0.1, text: 男生长发（发尾及肩或更长）}
+    collar:   {max_ratio: 0.8, action: block, borderline: 0.08, text: 男生头发后面过领}
   rules:
-    male: {max_ratio: 0.95, action: block, borderline: 0.1, text: 男生长发（发尾及肩或更长）}
+    male: shoulder

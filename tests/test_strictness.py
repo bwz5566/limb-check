@@ -27,7 +27,7 @@ def decide(items, level, view="backs"):
 
 
 def test_levels_change_policy():
-    hb = [tattoo("right_hand_back")]          # 手背单处、小、浅色、无攻击性
+    hb = [tattoo("right_palm")]               # 手掌单处、小、浅色、无攻击性（手指、手背 2026-11-05 确认标准档可录）
     assert decide(hb, "strict")[0].decision == "fail"
     assert decide(hb, "standard")[0].decision == "review"
     assert decide(hb, "lenient")[0].decision == "pass"
@@ -80,7 +80,7 @@ def test_profiles_have_strictness():
 
 
 def test_rejudge_without_calling_model():
-    _, r = decide([tattoo("right_hand_back")], "standard")
+    _, r = decide([tattoo("right_palm")], "standard")
     d = json.loads(json.dumps(r.to_dict()))      # 存进 predictions.jsonl 再读出来
     for lv, want in (("strict", "block"), ("standard", "review"), ("lenient", "pass")):
         rr = rejudge("tattoo", d, "backs", lv)
@@ -89,7 +89,7 @@ def test_rejudge_without_calling_model():
 
 def test_calibrate_report():
     samples, preds = [], {}
-    for i, (part, truth) in enumerate([("right_hand_back", "review"), ("neck", "block"), ("left_forearm", "pass")] * 3):
+    for i, (part, truth) in enumerate([("right_palm", "review"), ("neck", "block"), ("left_forearm", "pass")] * 3):
         _, r = decide([tattoo(part)], "standard", "backs" if "hand" in part else "neck" if part == "neck" else "arms_out")
         view = "backs" if "hand" in part else "neck" if part == "neck" else "arms_out"
         samples.append(Sample(id=f"s{i}", image="x.jpg", view=view, session_id=f"S{i}", truth={"tattoo": truth}))

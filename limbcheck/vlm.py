@@ -207,7 +207,8 @@ _QUALITY_RANK = {"good": 0, "fair": 1, "poor": 2}
 
 
 def merge_parsed(parsed: list[dict], missing: bool = False) -> dict | None:
-    """合并逐张调用的解析结果：条目按 (检测项, 部位, 标签) 去重保留置信度高的（同一处标记出现在两张图里只算一处），
+    """合并逐张调用的解析结果：条目按 (检测项, 部位, 标签, 手指, 内容, 深浅, 大小) 去重保留置信度高的（同一处标记出现在两张图里只算一处；
+    同一部位内容、深浅或大小不同的标记，如小臂内侧和外侧各一处，分开保留），
     画质取最差的；有一张没拿到结果时画质按 poor 处理（另一侧看不到，不能确认没有问题）。"""
     if not parsed:
         return None
@@ -216,7 +217,8 @@ def merge_parsed(parsed: list[dict], missing: bool = False) -> dict | None:
     items: dict[tuple, dict] = {}
     for p in parsed:
         for it in p["items"]:
-            key = (it["check"], it["part"], it["label"], tuple(it["fingers"]))
+            a = it.get("attrs") or {}
+            key = (it["check"], it["part"], it["label"], tuple(it["fingers"]), a.get("content"), a.get("ink"), a.get("vs_ref"))
             if key not in items or it["confidence"] > items[key]["confidence"]:
                 items[key] = it
     quality = max((p["image_quality"] for p in parsed), key=_QUALITY_RANK.__getitem__)

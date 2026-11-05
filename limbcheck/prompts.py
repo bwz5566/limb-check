@@ -12,7 +12,7 @@ import os
 import re
 from functools import lru_cache
 
-from .core import CHECK_CN, CHECK_DEFS, EXPECTED_HANDS, FINGERS, VIEW_CHECKS, CheckResult, Finding, config_dir
+from .core import CHECK_CN, CHECK_DEFS, EXPECTED_HANDS, FINGER_CN, FINGERS, SIDE_CN, VIEW_CHECKS, CheckResult, Finding, config_dir
 
 UNKNOWN_LABELS = {"not_visible", "uncertain", "unknown"}
 
@@ -177,6 +177,19 @@ def parse_reply(text: str, checks: list[str]) -> tuple[dict | None, list[str]]:
     return {"items": items, "image_quality": quality, "reason": str(obj.get("reason", ""))[:200]}, errors
 
 
+def _label_note(rule: dict, item: dict) -> str:
+    """有问题的条目写成"右手并指（中指、无名指）"：提示词规则里有 labels_cn（如手指的断指、缺指、多指、并指）时用。"""
+    cn = (rule.get("labels_cn") or {}).get(item["label"])
+    if not cn:
+        return ""
+    part = (item.get("part") or "").lower()
+    side = SIDE_CN.get("right" if "right" in part else "left" if "left" in part else "", "")
+    fingers = "、".join(FINGER_CN[f] for f in item["fingers"])
+    also = item.get("attrs", {}).get("also")
+    also = [(rule["labels_cn"].get(a, a)) for a in (also if isinstance(also, list) else [also] if also else [])]
+    return f"{side}{cn}" + (f"（{fingers}）" if fingers else "") + (f"，另有{'、'.join(map(str, also))}" if also else "")
+
+
 def to_check_results(parsed: dict | None, checks: list[str], view: str, source: str, errors: list[str] | None = None,
                      meta: dict | None = None) -> dict[str, CheckResult]:
     """把解析后的 L2 输出转换为每个检测项的 CheckResult。
@@ -222,8 +235,9 @@ def to_check_results(parsed: dict | None, checks: list[str], view: str, source: 
                 is_pos = None
                 unsure = True
             findings.append(Finding(check=c, part=i["part"], label=label, positive=is_pos, confidence=i["confidence"],
-                                    source=source, value=i["fingers"] or i["value"]))
-        note = ""
+                                    source=source, value=i["fingers"] or i["value"],
+                                    note=_label_note(rules[c], i) if is_pos else ""))
+        note = "；".join(dict.fromkeys(f.note for f in findings if f.positive and f.note))
         if pos_conf:
             positive, conf = True, max(pos_conf)
         elif not items:

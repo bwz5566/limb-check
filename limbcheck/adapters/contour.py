@@ -258,7 +258,7 @@ def contour_result(img: np.ndarray, hands: list[Hand], backend, th: dict, expect
                 a, b = pair.split("-")
                 parts += [p for p in (f"{side}_hand.{a}", f"{side}_hand.{b}") if p not in parts]
                 findings.append(Finding("fingers", f"{side}_hand.{a}", "no_gap", True, 0.6, source, pair,
-                                        f"{FINGER_CN[a]}和{FINGER_CN[b]}之间看不到缝隙，疑似被遮挡（关键点脑补）"))
+                                        f"{FINGER_CN[a]}和{FINGER_CN[b]}之间看不到缝隙，疑似并指或被遮挡（关键点脑补）"))
         if open_hand:
             bent = [f for f, ok in finger_straight(hand.pts).items() if not ok]
             closed = [p for p, ok in gaps.items() if ok == "closed"]

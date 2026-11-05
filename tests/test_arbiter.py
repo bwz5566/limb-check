@@ -81,3 +81,17 @@ def test_worst():
     assert worst([PASS, REDO, PASS]) == REDO
     assert worst([PASS, FAIL_SUGGESTED, REVIEW]) == FAIL_SUGGESTED
     assert worst([]) is None
+
+
+def test_l1_blind_labels():
+    """多指：关键点模型固定 5 根手指，它的"正常"不算两路不一致，按大模型的"有问题"转人工确认，而不是"两路不一致"。"""
+    from limbcheck.core import Finding
+    l1 = r(False, src="L1:mediapipe")
+    l2 = CheckResult("fingers", "L2:x", True, 0.9, ["right_hand.thumb"], True,
+                     [Finding("fingers", "right_hand", "extra", True, 0.9, "L2:x", ["thumb"], "右手多指（拇指）")])
+    cfg = {**CFG, "per_check": {"fingers": {"l1_blind_labels": ["extra", "extra_deformed"]}}}
+    a = arbitrate("fingers", l1, l2, cfg, "judge", 1)
+    assert a.decision == FAIL_SUGGESTED and "看不出" in a.reason and a.reason.endswith("：右手多指（拇指）")
+    assert arbitrate("fingers", l1, l2, CFG, "judge", 1).decision == REVIEW        # 没配置时仍按两路不一致
+    l2.findings[0].label = "syndactyly"                                             # 并指 L1 看得出（指间缝隙），照常比较
+    assert arbitrate("fingers", l1, l2, cfg, "judge", 1).decision == REVIEW
