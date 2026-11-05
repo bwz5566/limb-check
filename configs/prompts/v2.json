@@ -15,7 +15,14 @@
     "arms_in": "受检者双臂向前平伸、掌心和小臂内侧朝向镜头的半身近景",
     "head_front": "受检者头部和双肩的正面近景",
     "head_back": "受检者头部和双肩的背面近景（背对镜头）",
-    "nails_close": "受检者双手手背朝向镜头、四指并拢指尖朝上的指甲近景"
+    "nails_close": "受检者双手手背朝向镜头、四指并拢指尖朝上的指甲近景",
+    "face": "受检者面部的正面近景（摘下口罩、帽子）；面部的纹身、疤痕 part 用 face",
+    "hand_back_right": "受检者右手手背朝向镜头、掌心朝下自然平放的近景，画面里只有右手；手背上的 part 用 right_hand_back，手指上的用 right_finger 并在 fingers 写明哪根，手腕处用 right_forearm",
+    "hand_back_left": "受检者左手手背朝向镜头、掌心朝下自然平放的近景，画面里只有左手；手背上的 part 用 left_hand_back，手指上的用 left_finger 并在 fingers 写明哪根，手腕处用 left_forearm",
+    "forearm_right": "受检者右手小臂的近景（掌心和小臂内侧朝向镜头，或手背和小臂外侧朝向镜头）；小臂（含手腕）上的 part 用 right_forearm，拍到的手背、手掌、手指、大臂按实际部位填写",
+    "forearm_left": "受检者左手小臂的近景（掌心和小臂内侧朝向镜头，或手背和小臂外侧朝向镜头）；小臂（含手腕）上的 part 用 left_forearm，拍到的手背、手掌、手指、大臂按实际部位填写",
+    "upper_arm_right": "受检者右侧大臂（上臂，肩膀到手肘）的近景，衣袖拉到大臂以上（手臂自然下垂、大臂外侧朝向镜头，或手臂向侧面抬起、大臂内侧朝向镜头）；大臂上的 part 用 right_upper_arm，拍到的小臂按 right_forearm 填写",
+    "upper_arm_left": "受检者左侧大臂（上臂，肩膀到手肘）的近景，衣袖拉到大臂以上（手臂自然下垂、大臂外侧朝向镜头，或手臂向侧面抬起、大臂内侧朝向镜头）；大臂上的 part 用 left_upper_arm，拍到的小臂按 left_forearm 填写"
   },
   "checks": {
     "fingers": {

@@ -137,6 +137,26 @@ const GUIDES = {
     svg: svg(person({ le: [34, 64], lw: [56, 62], re: [86, 64], rw: [64, 62] }, ['larm', 'rarm']) + text(4, 104, '左', 12, DIM, 'start') + text(116, 104, '右', 12, DIM, 'end'), '-6 0 132 108'),
     caption: st.phase ? '小臂翻过来：掌心、小臂内侧朝镜头' : '走近，小臂水平横放胸前：手背、小臂外侧朝镜头',
   }),
+  face: () => ({
+    svg: svg(`<ellipse cx="60" cy="62" rx="34" ry="44" fill="none" stroke="${OR}" stroke-width="2" stroke-dasharray="5 4" class="g-pulse"/>`
+      + `<ellipse cx="60" cy="62" rx="24" ry="31" fill="none" stroke="${BODY}" stroke-width="3"/><circle cx="51" cy="56" r="2" fill="${BODY}"/><circle cx="69" cy="56" r="2" fill="${BODY}"/>`
+      + `<path d="M52 76 Q60 81 68 76" fill="none" stroke="${BODY}" stroke-width="2.5"/>` + text(60, 122, '正对镜头 · 保持 3 秒', 10, OR), '0 10 120 120'),
+    caption: '摘下口罩帽子，脸正对镜头，保持 3 秒',
+  }),
+  ...Object.fromEntries(['right', 'left'].map(side => {
+    const name = side === 'right' ? '右手' : '左手', arm = side === 'right' ? '右' : '左', limb = side === 'right' ? 'rarm' : 'larm';
+    const sx = side === 'right' ? 116 : 4, anchor = side === 'right' ? 'end' : 'start';
+    // 镜像画面：受检者的右侧画在右边。手背朝镜头时拇指朝外
+    const handBack = () => ({ svg: svg(hand(60, 62, side === 'right' ? 1 : -1, { facing: 'back', label: [name, '手背朝镜头'], labelHl: true }) + text(sx, 30, arm, 14, OR, anchor), '0 16 120 122'),
+      caption: `只伸出${name}，手背朝镜头，掌心朝下自然平放，保持 3 秒` });
+    const fore = st => ({ key: st.phase ? 'out' : 'in',
+      svg: svg(person(side === 'right' ? { re: [86, 64], rw: [64, 62] } : { le: [34, 64], lw: [56, 62] }, [limb]) + text(sx, 104, arm, 12, OR, anchor), '-6 0 132 108'),
+      caption: st.phase ? `${arm}小臂翻过来：手背、小臂外侧朝镜头` : `${arm}边袖子拉起，${arm}小臂横放胸前：掌心、小臂内侧朝镜头` });
+    const upper = st => ({ key: st.phase ? 'in' : 'out',
+      svg: svg(person(st.phase ? (side === 'right' ? { re: [96, 26], rw: [114, 18] } : { le: [24, 26], lw: [6, 18] }) : {}, [limb]) + text(sx, 160, arm, 12, OR, anchor)),
+      caption: st.phase ? `${arm}臂向侧面抬起，掌心朝前，露出大臂内侧` : `${arm}边袖子拉到大臂以上，手臂自然下垂，露出大臂外侧` });
+    return [[`hand_back_${side}`, handBack], [`forearm_${side}`, fore], [`upper_arm_${side}`, upper]];
+  }).flat()),
   palms: () => ({ svg: twoHands('palm'), caption: '双手掌心朝镜头，五指张开' }),
   nails: () => ({ svg: twoHands('back', { nailHl: true }), caption: '手背朝镜头，四指并拢朝上，靠近镜头让指甲看清楚' }),
   backs: () => ({ svg: twoHands('back'), caption: '手背朝镜头，五指张开' }),

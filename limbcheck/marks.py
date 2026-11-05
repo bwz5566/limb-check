@@ -18,7 +18,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 
-from .core import FINGER_CN, FINGERS, SIDE_CN, CheckResult, Finding, config_dir
+from .core import CHECK_DEFS, FINGER_CN, FINGERS, SIDE_CN, CheckResult, Finding, config_dir
 
 PASS, REVIEW, CLEAN, BLOCK = "pass", "review", "clean", "block"
 ACTIONS = (PASS, REVIEW, CLEAN, BLOCK)
@@ -176,6 +176,13 @@ def make_mark(item: dict, view: str, meta: dict | None = None, pol: dict | None 
     label = item.get("label")
     kind = "stain" if label == "stain" else ("scar" if item.get("check") == "scar" else "tattoo")
     region, side = region_of(item.get("part", ""), view, item.get("fingers"))
+    vdef = CHECK_DEFS["views"].get(view) or {}
+    if vdef.get("side"):        # 单侧近景（右手背、左小臂……）：左右以采集步骤为准，大模型常把画面左右当成身体左右
+        side = vdef["side"]
+    part = (item.get("part") or "").lower()
+    vague = region == "other" or (region == "forearm" and not any(k in part for k in ("forearm", "lower_arm", "wrist")))
+    if vdef.get("region") and vague:    # 部位说不清（other、只写了 arm）时按这一步拍的部位
+        region = vdef["region"]
     m = Mark(kind=kind, part=item.get("part", ""), region=region, side=side, fingers=list(item.get("fingers") or []),
              view=view, confidence=float(item.get("confidence") or 0.0), uncertain=bool(item.get("uncertain")),
              attrs=attrs, bbox=item.get("bbox"))
@@ -256,7 +263,7 @@ def eval_tattoo(m: Mark, pol: dict | None = None) -> tuple[str, list[tuple[str, 
             hits.append((PASS, "颜色浅" if ink == "light" else "洗过褪色的淡痕"))
         elif reg["dark"] == BLOCK:
             hits.append((REVIEW, "颜色深浅无法判断"))
-        if reg.get("single") and not any(a == BLOCK for a, _ in hits):
+        if reg.get("single") and reg["single"] != PASS and not any(a == BLOCK for a, _ in hits):
             hits.append((reg["single"], f"{reg['name']}属外露高频部位，作业时持续外露"))
     if m.attrs.get("covers_scar"):
         hits.append((pol["tattoo"].get("covers_scar", BLOCK), "纹身覆盖 / 搭配疤痕"))

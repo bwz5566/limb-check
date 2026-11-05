@@ -8,7 +8,7 @@ groups:
   - {id: hands,    name: 手部,       checks: [fingers], steps: [palms, backs, flex, pinch]}
   - {id: nails,    name: 指甲,       checks: [nails], steps: [nails]}
   - {id: hair,     name: 头发,       checks: [hair], steps: [hair]}
-  - {id: marks,    name: 纹身 / 疤痕, checks: [tattoo, scar], steps: [neck, arms_close]}
+  - {id: marks,    name: 纹身 / 疤痕, checks: [tattoo, scar], steps: [face, hand_back_right, forearm_right, upper_arm_right, hand_back_left, forearm_left, upper_arm_left, neck, arms_close]}
   - {id: liveness, name: 活体 / 防作弊, checks: [liveness], steps: [challenge]}
 
 # 入职前可以整改的检测项：判"不符合"或"疑似问题"时不淘汰，给"有条件通过"并写明整改要求。

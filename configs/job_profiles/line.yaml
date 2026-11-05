@@ -5,7 +5,7 @@ requirements:
   - 双手能完成抓握
   - 上肢活动正常
 strictness: standard        # 筛选严格度 strict / standard / lenient（configs/strictness.yaml），可按场次临时切换
-steps: [env, stand, back, arms, cross_touch, neck, hair, arms_close, palms, backs, nails, flex, challenge]
+steps: [face, hand_back_right, forearm_right, upper_arm_right, hand_back_left, forearm_left, upper_arm_left, neck, hair, palms, backs, nails, flex, challenge, env, stand, back, arms, squat, march, cross_touch]   # 采集顺序按《AI面试需求》采集细则：面部 → 右手背 → 右小臂 → 右大臂 → 左侧 → …… → 全身动作（平举 → 下蹲 → 高抬腿）
 checks:
   limbs:    {enabled: true, mode: judge, params: {upper: true, lower: false}}
   coordination: {enabled: true, mode: judge}   # 动作序列分析（configs/thresholds.yaml 的 motion 段）；只有关键点一路，发现问题只建议人工确认

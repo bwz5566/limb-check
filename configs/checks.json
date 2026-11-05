@@ -7,8 +7,8 @@
     "coordination": {"name": "肢体协调性", "views": [], "basis_required": false, "appearance": false, "motion_steps": ["arms", "cross_touch", "legs", "march", "squat", "flex", "pinch"]},
     "fingers":  {"name": "手部（手指/手掌/手背）", "views": ["palms", "backs", "hand"], "basis_required": false, "appearance": false, "required_views": ["palms", "backs"]},
     "nails":    {"name": "指甲（美甲 / 长度 / 形状）", "views": ["backs", "hand", "nails_close"], "basis_required": false, "appearance": true},
-    "tattoo":   {"name": "纹身", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand"], "basis_required": true, "appearance": true},
-    "scar":     {"name": "疤痕", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand"], "basis_required": true, "appearance": true},
+    "tattoo":   {"name": "纹身", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand", "face", "hand_back_right", "forearm_right", "upper_arm_right", "hand_back_left", "forearm_left", "upper_arm_left"], "basis_required": true, "appearance": true},
+    "scar":     {"name": "疤痕", "views": ["stand", "back", "arms", "arms_up", "neck", "arms_out", "arms_in", "palms", "backs", "hand", "face", "hand_back_right", "forearm_right", "upper_arm_right", "hand_back_left", "forearm_left", "upper_arm_left"], "basis_required": true, "appearance": true},
     "hair":     {"name": "头发（发色 / 发长）", "views": ["head_front", "head_back"], "basis_required": true, "appearance": true},
     "liveness": {"name": "活体/防作弊", "views": [], "basis_required": false, "appearance": false}
   },
@@ -25,6 +25,13 @@
     "palms":    {"name": "双手掌心", "kind": "hand", "expected_hands": 2},
     "backs":    {"name": "双手手背", "kind": "hand", "expected_hands": 2},
     "hand":     {"name": "单手近景", "kind": "hand", "expected_hands": 1},
-    "nails_close": {"name": "指甲近景", "kind": "hand", "expected_hands": 2}
+    "nails_close": {"name": "指甲近景", "kind": "hand", "expected_hands": 2},
+    "face":            {"name": "面部近景", "kind": "head", "region": "face"},
+    "hand_back_right": {"name": "右手手背近景", "kind": "hand", "expected_hands": 1, "side": "right", "region": "hand_back"},
+    "hand_back_left":  {"name": "左手手背近景", "kind": "hand", "expected_hands": 1, "side": "left", "region": "hand_back"},
+    "forearm_right":   {"name": "右小臂近景（内侧 + 外侧）", "kind": "arm", "side": "right", "region": "forearm"},
+    "forearm_left":    {"name": "左小臂近景（内侧 + 外侧）", "kind": "arm", "side": "left", "region": "forearm"},
+    "upper_arm_right": {"name": "右大臂近景（外侧 + 内侧）", "kind": "arm", "side": "right", "region": "upper_arm"},
+    "upper_arm_left":  {"name": "左大臂近景（外侧 + 内侧）", "kind": "arm", "side": "left", "region": "upper_arm"}
   }
 }

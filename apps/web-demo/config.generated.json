@@ -63,7 +63,14 @@
         "arms_in",
         "palms",
         "backs",
-        "hand"
+        "hand",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left"
       ],
       "basis_required": true,
       "appearance": true
@@ -80,7 +87,14 @@
         "arms_in",
         "palms",
         "backs",
-        "hand"
+        "hand",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left"
       ],
       "basis_required": true,
       "appearance": true
@@ -157,6 +171,49 @@
       "name": "指甲近景",
       "kind": "hand",
       "expected_hands": 2
+    },
+    "face": {
+      "name": "面部近景",
+      "kind": "head",
+      "region": "face"
+    },
+    "hand_back_right": {
+      "name": "右手手背近景",
+      "kind": "hand",
+      "expected_hands": 1,
+      "side": "right",
+      "region": "hand_back"
+    },
+    "hand_back_left": {
+      "name": "左手手背近景",
+      "kind": "hand",
+      "expected_hands": 1,
+      "side": "left",
+      "region": "hand_back"
+    },
+    "forearm_right": {
+      "name": "右小臂近景（内侧 + 外侧）",
+      "kind": "arm",
+      "side": "right",
+      "region": "forearm"
+    },
+    "forearm_left": {
+      "name": "左小臂近景（内侧 + 外侧）",
+      "kind": "arm",
+      "side": "left",
+      "region": "forearm"
+    },
+    "upper_arm_right": {
+      "name": "右大臂近景（外侧 + 内侧）",
+      "kind": "arm",
+      "side": "right",
+      "region": "upper_arm"
+    },
+    "upper_arm_left": {
+      "name": "左大臂近景（外侧 + 内侧）",
+      "kind": "arm",
+      "side": "left",
+      "region": "upper_arm"
     }
   },
   "thresholds": {
@@ -171,6 +228,13 @@
       "hint_stable_ms": 800,
       "respond_ms": 5000,
       "max_prompts": 3
+    },
+    "close_up": {
+      "hold_ms": 3000,
+      "face_min_frac": 0.2,
+      "hand_min_size": 0.12,
+      "limb_min_frac": 0.2,
+      "raise_min_deg": 60
     },
     "quality": {
       "brightness": [
@@ -301,20 +365,28 @@
       ],
       "strictness": "standard",
       "steps": [
-        "env",
-        "stand",
-        "back",
-        "arms",
-        "cross_touch",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left",
         "neck",
         "hair",
-        "arms_close",
         "palms",
         "backs",
         "nails",
         "flex",
         "pinch",
-        "challenge"
+        "challenge",
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "squat",
+        "march",
+        "cross_touch"
       ],
       "checks": {
         "limbs": {
@@ -393,19 +465,27 @@
       ],
       "strictness": "standard",
       "steps": [
-        "env",
-        "stand",
-        "back",
-        "arms",
-        "cross_touch",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left",
         "neck",
         "hair",
-        "arms_close",
         "palms",
         "backs",
         "nails",
         "flex",
-        "challenge"
+        "challenge",
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "squat",
+        "march",
+        "cross_touch"
       ],
       "checks": {
         "limbs": {
@@ -485,22 +565,28 @@
       ],
       "strictness": "standard",
       "steps": [
-        "env",
-        "stand",
-        "back",
-        "arms",
-        "cross_touch",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left",
         "neck",
         "hair",
-        "arms_close",
-        "legs",
-        "march",
-        "squat",
         "palms",
         "backs",
         "nails",
         "flex",
-        "challenge"
+        "challenge",
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "legs",
+        "squat",
+        "march",
+        "cross_touch"
       ],
       "checks": {
         "limbs": {
@@ -580,19 +666,27 @@
       ],
       "strictness": "standard",
       "steps": [
-        "env",
-        "stand",
-        "back",
-        "arms",
-        "cross_touch",
+        "face",
+        "hand_back_right",
+        "forearm_right",
+        "upper_arm_right",
+        "hand_back_left",
+        "forearm_left",
+        "upper_arm_left",
         "neck",
         "hair",
-        "arms_close",
         "palms",
         "backs",
         "nails",
         "flex",
-        "challenge"
+        "challenge",
+        "env",
+        "stand",
+        "back",
+        "arms",
+        "squat",
+        "march",
+        "cross_touch"
       ],
       "checks": {
         "limbs": {
@@ -748,38 +842,39 @@
             "name": "大臂",
             "size_ref": "id_card",
             "large": "block",
-            "large_faded": "pass",
+            "large_faded": "block",
             "dark": "review"
           },
           "forearm": {
             "name": "小臂",
             "size_ref": "id_card",
             "large": "block",
-            "large_faded": "pass",
+            "large_faded": "block",
             "dark": "review"
           },
           "finger": {
             "name": "手指",
             "size_ref": "coin",
             "large": "block",
-            "large_faded": "pass",
+            "large_faded": "block",
             "dark": "block",
-            "max_count": 1
+            "max_count": 1,
+            "single": "pass"
           },
           "hand_back": {
             "name": "手背",
             "size_ref": "id_card",
             "large": "block",
-            "large_faded": "review",
+            "large_faded": "block",
             "dark": "block",
             "max_count": 1,
-            "single": "review"
+            "single": "pass"
           },
           "palm": {
             "name": "手掌",
             "size_ref": "id_card",
             "large": "block",
-            "large_faded": "review",
+            "large_faded": "block",
             "dark": "block",
             "max_count": 1,
             "single": "review"
@@ -1064,6 +1159,9 @@
           },
           "tattoo": {
             "regions": {
+              "finger": {
+                "single": "block"
+              },
               "hand_back": {
                 "single": "block",
                 "large_faded": "block"
@@ -1222,6 +1320,13 @@
           "scar"
         ],
         "steps": [
+          "face",
+          "hand_back_right",
+          "forearm_right",
+          "upper_arm_right",
+          "hand_back_left",
+          "forearm_left",
+          "upper_arm_left",
           "neck",
           "arms_close"
         ]
@@ -1273,6 +1378,20 @@
         "name": "未评估",
         "text": "没有按判定模式评估的项目"
       }
+    }
+  },
+  "inquiry": {
+    "version": 1,
+    "scar": {
+      "enabled": true,
+      "questions": [
+        "身上的疤痕是什么原因造成的，可以简单说明一下吗？",
+        "手臂上面这个伤疤是怎么来的？",
+        "麻烦说明一下这个疤痕形成的原因。",
+        "这个疤什么时候弄的，是什么情况造成的？"
+      ],
+      "answer_ms": 20000,
+      "record_audio": true
     }
   }
 }

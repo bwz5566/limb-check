@@ -25,6 +25,7 @@ levels:
         symbol: {action: block}
       tattoo:
         regions:
+          finger: {single: block}
           hand_back: {single: block, large_faded: block}
           palm: {single: block, large_faded: block}
           upper_arm: {dark: block}

@@ -77,7 +77,9 @@ def test_large_arm_tattoo_blocked_unless_faded():
     r, a = run([tattoo("left_upper_arm", bbox=big)], checks=("tattoo",))["tattoo"]
     assert a.decision == "fail" and "面积 ≥ 身份证" in a.reason
     r, a = run([tattoo("left_upper_arm", bbox=big, ink="faded")], checks=("tattoo",))["tattoo"]
-    assert a.decision == "pass"     # 面积大但洗过明显变淡、无攻击性 → 放行
+    assert a.decision == "fail"     # 案例 A-06、A-07：洗过、颜色很浅但面积大于身份证 → 不录用
+    r, a = run([tattoo("left_forearm", bbox=[0, 0, 100, 60], ink="faded")], checks=("tattoo",))["tattoo"]
+    assert a.decision == "pass"     # 案例 A-05：洗后淡痕、面积小于身份证 → 可录用
 
 
 def test_borderline_size_goes_to_review():
@@ -103,6 +105,7 @@ def test_measure_conflicting_with_model_is_review():
 
 
 def test_single_small_light_finger_tattoo_passes():
+    """规则第 5 条与案例 A-11 矛盾，2026-11-05 确认按规则第 5 条：单处、小于硬币、浅色、无攻击性可录（marks.yaml 的 finger.single）。"""
     small = [0, 0, 20, 20]          # 10×10 mm < 1 分硬币面积 2.54 cm²
     r, a = run([tattoo("right_finger", fingers=["index"], bbox=small)], view="backs", checks=("tattoo",))["tattoo"]
     assert a.decision == "pass"
@@ -120,14 +123,14 @@ def test_finger_rules():
     # 颜色过深 → 不录用
     r, a = run([tattoo("right_finger", fingers=["index"], ink="dark", bbox=small)], view="backs", checks=("tattoo",))["tattoo"]
     assert a.decision == "fail" and "颜色过深" in a.reason
-    # 整体洗过褪色的淡痕，即使不小 → 放行
+    # 洗过褪色但面积 ≥ 1 分硬币 → 仍不录用（洗淡不抵面积）
     r, a = run([tattoo("right_finger", fingers=["index"], ink="faded", bbox=[0, 0, 60, 60])], view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "pass"
+    assert a.decision == "fail"
 
 
 def test_hand_back_rules():
     r, a = run([tattoo("right_hand_back", bbox=[0, 0, 40, 40])], view="backs", checks=("tattoo",))["tattoo"]
-    assert a.decision == "review" and "外露高频" in a.reason            # 单处小面积 → 人工核验（可在配置里改为放行）
+    assert a.decision == "pass"                                          # 单处小面积浅色 → 可录（可在配置里改为人工核验）
     r, a = run([tattoo("right_hand_back", bbox=[0, 0, 40, 40]), tattoo("right_hand_back", bbox=[500, 500, 540, 540])],
                view="backs", checks=("tattoo",))["tattoo"]
     assert a.decision == "fail" and "多处纹身叠加" in a.reason
@@ -177,14 +180,14 @@ def test_session_cross_view_finger_count():
     small = [0, 0, 20, 20]
     backs = run([tattoo("right_finger", fingers=["index"], bbox=small)], view="backs")
     palms = run([tattoo("left_finger", fingers=["ring"], bbox=small)], view="palms")
-    assert backs["tattoo"][1].decision == "pass" and palms["tattoo"][1].decision == "pass"   # 单个视角都只有 1 处
+    assert backs["tattoo"][1].decision == "pass" and palms["tattoo"][1].decision == "pass"   # 单个视角都只有 1 处（单处小浅手指纹身可录）
     sr = session_review({"backs": {c: r for c, (r, _) in backs.items()}, "palms": {c: r for c, (r, _) in palms.items()}})
     t = sr["tattoo"]
     assert t.action == "block" and "手指纹身 2 处" in t.rules[0]["text"] and len(t.marks) == 2
     # 同一根手指在两个视角都拍到 → 只算 1 处
     palms2 = run([tattoo("right_finger", fingers=["index"], bbox=small)], view="palms")
     sr = session_review({"backs": {c: r for c, (r, _) in backs.items()}, "palms": {c: r for c, (r, _) in palms2.items()}})
-    assert sr["tattoo"].action == "pass"
+    assert sr["tattoo"].action == "pass"      # 跨视角规则没有命中
 
 
 def test_session_reminders():
@@ -197,3 +200,31 @@ def test_session_reminders():
 def test_none_is_pass():
     r, a = run([{"check": "tattoo", "part": "all_visible", "label": "none", "confidence": 0.95}], checks=("tattoo",))["tattoo"]
     assert r.positive is False and a.decision == "pass"
+
+
+def test_side_and_region_from_close_up_view():
+    """单侧近景（右手背、左小臂……）：左右以采集步骤为准，部位说不清时按这一步拍的部位。"""
+    m = make_mark(tattoo("left_hand_back"), "hand_back_right")
+    assert (m.region, m.side) == ("hand_back", "right")
+    m = make_mark(tattoo("arm_skin"), "upper_arm_left")
+    assert (m.region, m.side) == ("upper_arm", "left")
+    m = make_mark(tattoo("right_forearm"), "upper_arm_right")       # 大臂近景里拍到的小臂按实际部位
+    assert m.region == "forearm"
+
+
+def test_case_table_examples():
+    """《AI面试需求》案例表里描述明确的几例。"""
+    small, big = [0, 0, 100, 60], [0, 0, 400, 300]
+    cases = [
+        ("B-01 脖子小花", [tattoo("neck", bbox=[0, 0, 20, 20])], "face", "fail"),
+        ("B-04 豹头", [tattoo("right_forearm", content="beast", bbox=small)], "forearm_right", "fail"),
+        ("B-13 辱骂文字", [tattoo("left_forearm", content="abusive_text", bbox=small)], "forearm_left", "fail"),
+        ("B-14 面积 ≥ 身份证", [tattoo("left_forearm", bbox=big)], "forearm_left", "fail"),
+        ("B-17 骷髅", [tattoo("right_forearm", content="skull_horror", bbox=big)], "forearm_right", "fail"),
+        ("A-06 小臂大面积洗淡", [tattoo("right_forearm", ink="faded", bbox=big)], "forearm_right", "fail"),
+        ("A-08 小于身份证、温和", [tattoo("right_upper_arm", bbox=small)], "upper_arm_right", "pass"),
+        ("B-05 手背深色", [tattoo("right_hand_back", ink="dark", bbox=[0, 0, 40, 40])], "hand_back_right", "fail"),
+    ]
+    for name, items, view, want in cases:
+        _, a = run(items, view=view, checks=("tattoo",))["tattoo"]
+        assert a.decision == want, (name, a.decision, a.reason)
