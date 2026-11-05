@@ -32,7 +32,7 @@ const LIMB_CN = { left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', r
 const SEGMENTS = { upper_arm: [['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow']], forearm: [['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist']], thigh: [['left_hip', 'left_knee'], ['right_hip', 'right_knee']], shank: [['left_knee', 'left_ankle'], ['right_knee', 'right_ankle']] };
 const SEG_CN = { upper_arm: '大臂', forearm: '小臂', hand_back: '手背', palm: '手掌', finger: '手指', thigh: '大腿', shank: '小腿', upper_leg: '大腿', lower_leg: '小腿', hand: '手', wrist: '手腕', elbow: '肘部', shoulder: '肩部', knee: '膝部', ankle: '踝部', foot: '脚', arm: '臂', leg: '腿' };
 const PART_CN = { right_hand: '右手', left_hand: '左手', left_foot: '左脚', right_foot: '右脚', left_arm: '左臂', right_arm: '右臂', left_leg: '左腿', right_leg: '右腿', arms: '双臂', legs: '双腿', whole_body: '全身', hands: '双手', all_visible: '全部可见部位', head: '头部', hair: '头发', neck: '颈部', back: '背部', face: '面部', torso: '躯干', chest: '胸部', abdomen: '腹部' };
-const LABEL_CN = { deformed: '疑似畸形或残缺', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定', long: '发长不符合', length_ok: '发长符合', length: '发长（只记录）' };
+const LABEL_CN = { deformed: '疑似畸形或残缺', amputated: '疑似断指', missing: '疑似缺指', extra: '疑似多指', extra_deformed: '疑似多指畸形', syndactyly: '疑似并指', palm_off_mask: '掌面不完整', tip_off_mask: '手指看不清（疑似遮挡或缺失）', no_gap: '手指间无缝隙（疑似并指或遮挡）', stain: '疑似污渍', rule: '规则', missing_or_short: '疑似缺失或短缩', normal: '正常', not_visible: '看不清', polish: '甲油', tips: '甲片', extension: '延长甲', none: '未发现', tattoo: '纹身', scar: '疤痕', natural: '自然发色', dyed: '染发', highlights: '挑染', missing_or_abnormal: '疑似缺失或异常', low_visibility: '关键点可见度低', asymmetric: '左右不对称', folded: '关节弯折（应伸直）', limb_off_mask: '肢体不在人体轮廓内', limited_rom: '活动范围受限', unstable: '平衡不稳', irregular: '节律不齐', incomplete: '未完成', uncertain: '不确定', long: '发长不符合', length_ok: '发长符合', length: '发长（只记录）' };
 const DECISION_CN = { pass: '满足', fail: '不符合', fail_suggested: '疑似问题·待人工确认', review: '需人工复核', redo: '需重做', not_assessed: '未评估' };
 const DECISION_CLS = { pass: 's-pass', fail: 's-fail', fail_suggested: 's-fail', review: 's-review', redo: 's-review', not_assessed: 'muted' };
 const SEVERITY = { not_assessed: 0, pass: 1, redo: 2, review: 3, fail_suggested: 4, fail: 5 };
@@ -349,7 +349,7 @@ function fingersEvidenceResult(hands, expected, openHand = true, source = 'L1:sk
     }
     for (const [a, b] of GAP_PAIRS) if (ev.gaps[`${a}-${b}`] === false) {
       for (const f of [a, b]) if (!parts.includes(`${side}_hand.${f}`)) parts.push(`${side}_hand.${f}`);
-      findings.push(Finding('fingers', `${side}_hand.${a}`, 'no_gap', true, 0.6, source, `${a}-${b}`, `${FINGER_CN[a]}和${FINGER_CN[b]}之间看不到缝隙，疑似被遮挡（关键点脑补）`));
+      findings.push(Finding('fingers', `${side}_hand.${a}`, 'no_gap', true, 0.6, source, `${a}-${b}`, `${FINGER_CN[a]}和${FINGER_CN[b]}之间看不到缝隙，疑似并指或被遮挡（关键点脑补）`));
     }
     if (openHand && notSpread(ev).length) { closed = true; findings.push(Finding('fingers', `${side}_hand`, 'uncertain', false, 0, source, notSpread(ev).map(p => p.join('-')), `${SIDE_CN[side] || '手'}手指没有分开，无法逐指确认`)); }
   }

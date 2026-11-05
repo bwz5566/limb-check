@@ -92,3 +92,4 @@ arbitration:
     scar: {strategy: policy, high_conf: 0.9} # 疤痕大模型误报多，要求更高置信度才自动通过
     hair: {strategy: policy}                 # 按发色、发长标准（configs/policies/hair.yaml）判定
     nails: {strategy: policy}                # 按指甲标准（configs/policies/nails.yaml）判定：款式、长度、形状
+    fingers: {l1_blind_labels: [extra, extra_deformed]}   # 多指、多指畸形：关键点模型固定画 5 根手指，看不出来，只按大模型判（待人工确认）

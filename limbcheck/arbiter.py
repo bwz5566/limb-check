@@ -12,7 +12,8 @@
 
 可替换：thresholds.yaml 的 arbitration.strategy 指定策略名（默认 default），
 自定义策略用 @register("arbiter", "名称") 注册一个 fn(l1, l2, cfg, attempt) -> (decision, reason)；
-arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）。
+arbitration.per_check 可按检测项覆盖阈值（如疤痕要求更高置信度）；
+per_check.<检测项>.l1_blind_labels 列出 L1 看不出的问题标签（如多指）：大模型只报这些问题时，L1 的"正常"不算两路不一致。
 
 纹身、疤痕、头发、指甲用 policy 策略：L2 结果里每处标记（头发为 L1 的发色、发长判定，指甲为每只手）已按录用标准（configs/policies/marks.yaml，limbcheck/marks.py）
 判为 pass / review / block / clean，策略据此给结论：block → 疑似问题·待人工确认（附命中条款）；
@@ -160,7 +161,17 @@ def arbitrate(check: str, l1: CheckResult | None, l2: CheckResult | None, cfg: d
     cfg = dict(cfg or {})
     cfg.update((cfg.pop("per_check", None) or {}).get(check) or {})
     strategy = get("arbiter", cfg.pop("strategy", None) or "default")
-    shadow, reason = strategy(l1, l2, cfg, attempt)
+    blind = set(cfg.pop("l1_blind_labels", None) or ())
+    l1_eff, prefix = l1, ""
+    if blind and l1 is not None and l1.positive is False and l2 is not None and l2.positive:
+        labels = {f.label for f in l2.findings if f.positive}
+        if labels and labels <= blind:      # 如多指：关键点模型固定 5 根手指，它的"正常"不能否定大模型
+            l1_eff, prefix = None, f"{l1.source} 看不出这类问题，按 {l2.source} 判断；"
+    shadow, reason = strategy(l1_eff, l2, cfg, attempt)
+    kinds = [f.note for f in (l2.findings if l2 else []) if f.positive and f.note]
+    if strategy is judge and shadow in (FAIL, FAIL_SUGGESTED, REVIEW) and kinds:     # 写明大模型看到的是哪种问题（如右手并指）
+        reason += "：" + "；".join(dict.fromkeys(kinds))
+    reason = prefix + reason
     decision = NOT_ASSESSED if mode == "record_only" else shadow
     if mode == "record_only":
         reason = f"只记录（书面依据未落实）；按判定模式应为 {shadow}：{reason}"

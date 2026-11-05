@@ -349,6 +349,12 @@
         },
         "nails": {
           "strategy": "policy"
+        },
+        "fingers": {
+          "l1_blind_labels": [
+            "extra",
+            "extra_deformed"
+          ]
         }
       }
     }
