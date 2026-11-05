@@ -1453,6 +1453,7 @@ async function scarInquiry(reviews) {
     const stopped = new Promise(r => { rec.onstop = r; });
     const btn = document.createElement('button');
     btn.textContent = '回答完毕'; btn.className = 'ghost';
+    btn.style.cssText = 'position:absolute;right:16px;bottom:16px;z-index:5;font-size:20px;padding:10px 22px;background:#fff';   // 横幅盖在画面上方，按钮放到右下角
     $('#banner').after(btn);
     const t0 = performance.now();
     rec.start();
@@ -1840,7 +1841,7 @@ async function init() {
   if (Q.get('job') && JOBS[Q.get('job')]) $('#job').value = Q.get('job');
   $('#job').onchange = showJob; showJob();
   if (Q.get('strictness') && WEB.strictness.levels[Q.get('strictness')]) { $('#strictness').value = Q.get('strictness'); showStrictness(); }
-  if (['all', 'body', 'hands', 'hair', 'nails'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
+  if (['all', 'body', 'hands', 'hair', 'nails', 'marks'].includes(Q.get('scope'))) $('#scope').value = Q.get('scope');
   if (['male', 'female'].includes(Q.get('gender'))) $('#gender').value = Q.get('gender');
   if (VLM.web) {
     $('#vlmStatus').textContent = VLM.vlm ? `大模型复核：已启用（${VLM.model}）` : '大模型复核：未配置';
