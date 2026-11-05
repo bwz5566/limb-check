@@ -254,7 +254,8 @@ def eval_tattoo(m: Mark, pol: dict | None = None) -> tuple[str, list[tuple[str, 
                 near = PASS
             hits.append((near, f"{why}" + ("，以核验为准" if near == REVIEW else "")))
         elif cls == "small":
-            hits.append((PASS, f"面积小于{ref_cn}"))
+            small = PASS if faded else reg.get("small", PASS)      # 洗后淡痕小于参照物可录（A-05）
+            hits.append((small, f"面积小于{ref_cn}" + ("，交人工判断" if small == REVIEW else "")))
         else:
             hits.append((pol["tattoo"].get("unknown_size", REVIEW), "无法估计面积"))
         if ink == "dark":

@@ -51,8 +51,11 @@ def test_measure_rel1000():
     assert make_mark(tattoo("left_forearm", size_cm=[3, 2]), "arms_out").size["area_mm2"] == 600
 
 
-def test_small_benign_arm_tattoo_passes():
+def test_small_benign_arm_tattoo_reviewed():
+    """案例 A-01–A-04（不录用）与 A-08–A-10（可录）描述相同：标准档交人工判断，宽松档放行（marks.yaml 的 small）。"""
     (r, a), = [run([tattoo("left_forearm", bbox=[0, 0, 100, 60])], checks=("tattoo",))["tattoo"]]
+    assert a.decision == "review" and "交人工判断" in a.reason
+    (r, a), = [run([tattoo("left_forearm", bbox=[0, 0, 100, 60])], checks=("tattoo",), meta={**META, "strictness": "lenient"})["tattoo"]]
     assert r.positive is False and a.decision == "pass" and "均符合录用标准" in a.reason
 
 
@@ -94,7 +97,7 @@ def test_dark_arm_tattoo_review():
 
 def test_unknown_size_uses_model_comparison():
     r, a = run([tattoo("left_forearm", vs_ref="smaller")], checks=("tattoo",), meta=None)["tattoo"]
-    assert a.decision == "pass"
+    assert a.decision == "review" and "面积小于" in a.reason
     r, a = run([tattoo("left_forearm")], checks=("tattoo",), meta=None)["tattoo"]
     assert a.decision == "review" and "无法估计面积" in a.reason
 
@@ -222,7 +225,7 @@ def test_case_table_examples():
         ("B-14 面积 ≥ 身份证", [tattoo("left_forearm", bbox=big)], "forearm_left", "fail"),
         ("B-17 骷髅", [tattoo("right_forearm", content="skull_horror", bbox=big)], "forearm_right", "fail"),
         ("A-06 小臂大面积洗淡", [tattoo("right_forearm", ink="faded", bbox=big)], "forearm_right", "fail"),
-        ("A-08 小于身份证、温和", [tattoo("right_upper_arm", bbox=small)], "upper_arm_right", "pass"),
+        ("A-08 小于身份证、温和（与 A-01–A-04 矛盾，交人工）", [tattoo("right_upper_arm", bbox=small)], "upper_arm_right", "review"),
         ("B-05 手背深色", [tattoo("right_hand_back", ink="dark", bbox=[0, 0, 40, 40])], "hand_back_right", "fail"),
     ]
     for name, items, view, want in cases:

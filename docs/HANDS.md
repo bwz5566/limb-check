@@ -82,12 +82,12 @@
 | 无文字或无明显符号可录用（普通文字、符号需看内容） | `content.text_neutral / symbol` | review |
 | 小星星、叶片、云朵、小花、波浪线条 | `content.benign` | pass |
 | 脖子有纹身，即使面积小也不录用 | `tattoo.regions.neck.action` | block |
-| 大臂、小臂：面积 < 身份证 85.6×54 mm 放行 | `regions.upper_arm/forearm.size_ref: id_card` | pass |
+| 大臂、小臂：面积 < 身份证 85.6×54 mm | `regions.upper_arm/forearm.small` | **review**（2026-11-05：案例 A-01–A-04 与 A-08–A-10 矛盾，交人工判断；洗后淡痕 pass；宽松档 pass） |
 | 大臂、小臂：面积 ≥ 身份证不录用…… | `large` | block |
-| ……但洗过、色素明显变淡、无攻击性的放行 | `large_faded` | pass |
+| ……洗过、色素明显变淡但面积 ≥ 身份证（2026-11 案例 A-06、A-07） | `large_faded` | block |
 | 颜色过深，最终以核验为准 | `regions.*.dark` | 手臂 review；手指、手背 block |
 | 手指：面积比 1 分硬币（直径 1.8 cm），≥ 硬币不录用 | `regions.finger.size_ref: coin`、`large` | block |
-| 手指：整体洗过褪色的淡痕可录 | `regions.finger.large_faded` | pass |
+| 手指：洗过褪色但面积 ≥ 硬币 | `regions.finger.large_faded` | block |
 | 手指纹身 ≤ 1 处可录、≥ 2 处不录用 | `regions.finger.max_count: 1` | block（按"哪只手哪根手指"跨视角去重） |
 | 手背多处纹身叠加 | `regions.hand_back.max_count: 1` | block |
 | 手指、手背单处、小、浅色、无攻击性 | `regions.finger/hand_back.single` | **pass**（2026-11-05 确认，见 3.3）；手掌 review |

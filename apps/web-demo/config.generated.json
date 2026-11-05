@@ -848,6 +848,7 @@
             "name": "大臂",
             "size_ref": "id_card",
             "large": "block",
+            "small": "review",
             "large_faded": "block",
             "dark": "review"
           },
@@ -855,6 +856,7 @@
             "name": "小臂",
             "size_ref": "id_card",
             "large": "block",
+            "small": "review",
             "large_faded": "block",
             "dark": "review"
           },
@@ -1244,10 +1246,12 @@
                 "single": "pass"
               },
               "upper_arm": {
-                "dark": "pass"
+                "dark": "pass",
+                "small": "pass"
               },
               "forearm": {
-                "dark": "pass"
+                "dark": "pass",
+                "small": "pass"
               },
               "other": {
                 "action": "pass"

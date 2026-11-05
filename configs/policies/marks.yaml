@@ -47,12 +47,15 @@ tattoo:
       name: 大臂
       size_ref: id_card
       large: block               # 面积 ≥ 身份证：不录用（B-14、B-16）
+      small: review              # 面积小于身份证、浅色、温和：案例 A-01–A-04 判不录用、A-08–A-10 判可录，描述相同无法区分，
+                                 # 2026-11-05 确认交人工判断（改为 pass 即自动放行）；洗后淡痕小于身份证仍可录（A-05）
       large_faded: block         # 洗过、颜色很浅但面积 ≥ 身份证也不录用（A-06 小臂、A-07 大臂）；面积小于身份证的洗后淡痕可录（A-05）
       dark: review               # 颜色过深：标准写"以现场照片 / 核验为准"
     forearm:
       name: 小臂
       size_ref: id_card
       large: block
+      small: review
       large_faded: block
       dark: review
     finger:

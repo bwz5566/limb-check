@@ -57,8 +57,8 @@ levels:
         regions:
           hand_back: {single: pass}
           palm: {single: pass}
-          upper_arm: {dark: pass}
-          forearm: {dark: pass}
+          upper_arm: {dark: pass, small: pass}
+          forearm: {dark: pass, small: pass}
           other: {action: pass}
           face: {action: review}
         sticker: pass
